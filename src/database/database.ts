@@ -43,7 +43,19 @@ export class Database {
         if (version < 1) await this.migrateV1();
         if (version < 2) await this.migrateV2();
         if (version < 3) await this.migrateV3(version);
-        await this.setMetadata('schema_version', '3');
+        if (version < 4) await this.migrateV4();
+        await this.setMetadata('schema_version', '4');
+    }
+
+    private async migrateV4(): Promise<void> {
+        // Preferred forms of address are derived per user and editable in the WebUI.
+        for (const column of ['address', 'address_manual']) {
+            try {
+                await this.db.schema.alterTable('user_profiles').addColumn(column, column === 'address' ? 'text' : 'integer', (c) => column === 'address' ? c.notNull().defaultTo('') : c.notNull().defaultTo(0)).execute();
+            } catch (error) {
+                if (!/duplicate column|already exists|1060/i.test(String(error))) throw error;
+            }
+        }
     }
 
     private async migrateV3(fromVersion: number): Promise<void> {

@@ -60,6 +60,8 @@ export interface PromptTable {
 export interface UserProfileTable {
     qq: string;
     display_name: string;
+    address: string;
+    address_manual: number;
     created_at: number;
     updated_at: number;
 }

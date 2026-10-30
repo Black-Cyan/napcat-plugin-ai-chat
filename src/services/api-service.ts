@@ -126,7 +126,13 @@ export function registerApiRoutes(ctx: NapCatPluginContext): void {
         return { ok: true };
     }));
 
-    router.get('/memories', handler(async (req) => requireStore().listMemories(query(req, 'search'))));
+    router.get('/memories', handler(async (req) => requireStore().listMemories(query(req, 'search'), query(req, 'qq'))));
+    router.get('/memories/users', handler(async (req) => requireStore().listMemoryUsers(query(req, 'search'))));
+    router.post('/memories/users/:qq', handler(async (req) => {
+        const body = z.object({ address: z.string().max(30) }).parse(req.body);
+        await requireStore().setProfileAddress(idSchema.parse(param(req, 'qq')), body.address, true);
+        return { ok: true };
+    }));
     router.post('/memories/:id', handler(async (req) => {
         const body = z.object({
             content: z.string().min(1).max(2000).optional(), valid: z.boolean().optional(), scope: z.enum(['private', 'group']).optional(),

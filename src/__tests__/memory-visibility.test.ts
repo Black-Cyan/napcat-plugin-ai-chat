@@ -48,12 +48,15 @@ describe('memory visibility', () => {
         const store = {
             findMemories: vi.fn().mockResolvedValue([]),
             saveMemories,
+            getProfiles: vi.fn().mockResolvedValue([{ qq: '10001', displayName: 'Alice', address: '', addressManual: false, updatedAt: 1 }]),
+            setProfileAddress: vi.fn().mockResolvedValue(undefined),
         } as unknown as Store;
 
         const tasks = {
             extractMemories: vi.fn().mockResolvedValue([
                 { participant: 'Alice', content: '喜欢喝奶茶', importance: 3, confidence: 80 },
             ]),
+            deriveAddress: vi.fn().mockResolvedValue('Alice同学'),
         } as unknown as AITasks;
 
         const service = new MemoryService(store, tasks);
@@ -69,5 +72,41 @@ describe('memory visibility', () => {
                 confidence: 80,
             }),
         ]);
+    });
+
+    it('derives a natural address from the nickname without reading memories', async () => {
+        const store = {
+            findMemories: vi.fn().mockResolvedValue([]),
+            saveMemories: vi.fn().mockResolvedValue([]),
+            getProfiles: vi.fn().mockResolvedValue([{ qq: '10001', displayName: '茉莉奶绿', address: '', addressManual: false, updatedAt: 1 }]),
+            setProfileAddress: vi.fn().mockResolvedValue(undefined),
+        } as unknown as Store;
+        const tasks = {
+            extractMemories: vi.fn().mockResolvedValue([]),
+            deriveAddress: vi.fn().mockResolvedValue('奶绿姐'),
+        } as unknown as AITasks;
+        const service = new MemoryService(store, tasks);
+        const messages = [message({ senderName: '茉莉奶绿' })];
+        await service.updateFromBatch(conversation('group'), messages, new ParticipantAliases(messages));
+        expect(tasks.deriveAddress).toHaveBeenCalledWith('茉莉奶绿', expect.anything());
+        expect(store.setProfileAddress).toHaveBeenCalledWith('10001', '奶绿姐', false);
+    });
+
+    it('never overwrites a manually chosen or already derived address', async () => {
+        const store = {
+            findMemories: vi.fn().mockResolvedValue([]),
+            saveMemories: vi.fn().mockResolvedValue([]),
+            getProfiles: vi.fn().mockResolvedValue([{ qq: '10001', displayName: 'Capricon', address: 'Cap同学', addressManual: true, updatedAt: 1 }]),
+            setProfileAddress: vi.fn().mockResolvedValue(undefined),
+        } as unknown as Store;
+        const tasks = {
+            extractMemories: vi.fn().mockResolvedValue([]),
+            deriveAddress: vi.fn(),
+        } as unknown as AITasks;
+        const service = new MemoryService(store, tasks);
+        const messages = [message({ senderName: 'Capricon' })];
+        await service.updateFromBatch(conversation('group'), messages, new ParticipantAliases(messages));
+        expect(tasks.deriveAddress).not.toHaveBeenCalled();
+        expect(store.setProfileAddress).not.toHaveBeenCalled();
     });
 });

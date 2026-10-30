@@ -1,2 +1,6 @@
+# The plugin and its WebUI are installed as two independent packages.
+packages:
+  - '.'
+
 allowBuilds:
   esbuild: true

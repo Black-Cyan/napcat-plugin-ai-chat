@@ -15,6 +15,7 @@ import type {
     Conversation,
     ConversationType,
     MemoryScope,
+    MemoryUserSummary,
     MessageBatch,
     MessageSegment,
     PromptProfile,
@@ -22,6 +23,7 @@ import type {
     SessionOverride,
     Sticker,
     UserMemory,
+    UserProfile,
 } from '../types';
 import { normalizeSubjectId } from '../types';
 
@@ -115,7 +117,7 @@ export class Store {
             const now = Date.now();
             if (input.senderId && input.senderKind !== 'self') {
                 await trx.insertInto('user_profiles').values({
-                    qq: input.senderId, display_name: input.senderName, created_at: now, updated_at: now,
+                    qq: input.senderId, display_name: input.senderName, address: '', address_manual: 0, created_at: now, updated_at: now,
                 }).onConflict((conflict) => conflict.doNothing()).execute();
                 await trx.updateTable('user_profiles').set({ display_name: input.senderName, updated_at: now }).where('qq', '=', input.senderId).execute();
             }
@@ -594,7 +596,7 @@ export class Store {
         const ids = memories.map(() => randomUUID());
         if (!memories.length) return [];
         for (const memory of memories) {
-            await this.db.insertInto('user_profiles').values({ qq: memory.qq, display_name: '', created_at: now, updated_at: now })
+            await this.db.insertInto('user_profiles').values({ qq: memory.qq, display_name: '', address: '', address_manual: 0, created_at: now, updated_at: now })
                 .onConflict((conflict) => conflict.doNothing()).execute();
         }
         await this.db.insertInto('user_memories').values(memories.map((memory, index) => ({
@@ -611,11 +613,73 @@ export class Store {
         await this.db.updateTable('user_memories').set({ valid: 0, superseded_by: newId, updated_at: Date.now() }).where('id', '=', oldId).execute();
     }
 
-    async listMemories(search = ''): Promise<UserMemory[]> {
+    async listMemories(search = '', qq = ''): Promise<UserMemory[]> {
         let query = this.db.selectFrom('user_memories').selectAll();
+        if (qq) query = query.where('qq', '=', qq);
         if (search) query = query.where((eb) => eb.or([eb('qq', 'like', `%${search}%`), eb('content', 'like', `%${search}%`)]));
         const rows = await query.orderBy('updated_at', 'desc').limit(1000).execute();
         return rows.map(mapMemory);
+    }
+
+    async listMemoryUsers(search = ''): Promise<MemoryUserSummary[]> {
+        let query = this.db.selectFrom('user_memories')
+            .select((eb) => [
+                'qq',
+                eb.fn.count<number>('id').as('total'),
+                eb.fn.sum<number>(eb.case().when('valid', '=', 1).then(1).else(0).end()).as('active'),
+                eb.fn.sum<number>(eb.case().when('scope', '=', 'private').then(1).else(0).end()).as('private_count'),
+                eb.fn.max('updated_at').as('last_updated_at'),
+            ])
+            .groupBy('qq');
+        if (search) {
+            const pattern = `%${search}%`;
+            query = query.where((eb) => eb('qq', 'in', eb.selectFrom('user_memories as matched').select('matched.qq').where((inner) => inner.or([
+                inner('matched.qq', 'like', pattern),
+                inner('matched.content', 'like', pattern),
+                inner('matched.qq', 'in', inner.selectFrom('user_profiles').select('user_profiles.qq').where((profiles) => profiles.or([
+                    profiles('user_profiles.display_name', 'like', pattern),
+                    profiles('user_profiles.address', 'like', pattern),
+                ]))),
+            ]))));
+        }
+        const rows = await query.orderBy('last_updated_at', 'desc').limit(500).execute();
+        if (!rows.length) return [];
+        const profiles = await this.getProfiles(rows.map((row) => row.qq));
+        const names = new Map(profiles.map((profile) => [profile.qq, profile]));
+        return rows.map((row) => {
+            const total = Number(row.total);
+            const privateCount = Number(row.private_count ?? 0);
+            return {
+                qq: row.qq,
+                displayName: names.get(row.qq)?.displayName ?? '',
+                address: names.get(row.qq)?.address ?? '',
+                addressManual: names.get(row.qq)?.addressManual ?? false,
+                total,
+                active: Number(row.active ?? 0),
+                privateCount,
+                groupCount: total - privateCount,
+                lastUpdatedAt: Number(row.last_updated_at ?? 0),
+            };
+        });
+    }
+
+    async getProfiles(qqs: string[]): Promise<UserProfile[]> {
+        if (!qqs.length) return [];
+        const rows = await this.db.selectFrom('user_profiles').selectAll().where('qq', 'in', qqs).execute();
+        return rows.map((row) => ({
+            qq: row.qq, displayName: row.display_name, address: row.address ?? '',
+            addressManual: Boolean(row.address_manual ?? 0), updatedAt: Number(row.updated_at),
+        }));
+    }
+
+    async setProfileAddress(qq: string, address: string, manual: boolean): Promise<void> {
+        const now = Date.now();
+        const value = address.trim().slice(0, 30);
+        await this.db.insertInto('user_profiles').values({
+            qq, display_name: '', address: value, address_manual: manual && value ? 1 : 0, created_at: now, updated_at: now,
+        }).onConflict((conflict) => conflict.column('qq').doUpdateSet({
+            address: value, address_manual: manual && value ? 1 : 0, updated_at: now,
+        })).execute();
     }
 
     async updateMemory(id: string, patch: { content?: string; valid?: boolean; scope?: MemoryScope }): Promise<void> {

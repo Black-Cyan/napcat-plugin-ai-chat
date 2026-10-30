@@ -237,6 +237,26 @@ export interface UserMemory {
     updatedAt: number;
 }
 
+export interface UserProfile {
+    qq: string;
+    displayName: string;
+    address: string;
+    addressManual: boolean;
+    updatedAt: number;
+}
+
+export interface MemoryUserSummary {
+    qq: string;
+    displayName: string;
+    address: string;
+    addressManual: boolean;
+    total: number;
+    active: number;
+    privateCount: number;
+    groupCount: number;
+    lastUpdatedAt: number;
+}
+
 export interface Sticker {
     id: string;
     napcatKey: string | null;

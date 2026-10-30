@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type Database } from '../database/database';
+import { sql } from 'kysely';
 import { Store } from '../database/store';
 import type { AppendMessageInput } from '../database/store';
 
@@ -92,6 +93,55 @@ describe('SQLite persistence', () => {
         // Now whitelisted group is accessible to model
         expect((await store.getBatchMessages(first.batch!.id)).length).toBe(1);
         expect((await store.getRecentMessages(conversation.id, 2, 10, true)).length).toBe(1);
+    });
+
+    it('groups memories by user with nicknames and searches across content and names', async () => {
+        const conversation = await store.ensureConversation('private', '10001');
+        await store.appendMessage(input(conversation.id, 'n1'));
+        await store.saveMemories([
+            { qq: '10001', scope: 'private', content: '喜欢喝奶茶', importance: 3, confidence: 90, sourceConversationId: conversation.id, sourceMessageId: 'm1' },
+            { qq: '10001', scope: 'group', content: '住在深圳', importance: 4, confidence: 95, sourceConversationId: conversation.id, sourceMessageId: 'm2' },
+            { qq: '10002', scope: 'group', content: '养了一只猫', importance: 3, confidence: 80, sourceConversationId: conversation.id, sourceMessageId: 'm3' },
+        ]);
+        const ids = await store.listMemories('', '10001');
+        expect(ids).toHaveLength(2);
+        await store.updateMemory(ids[0].id, { valid: false });
+
+        const users = await store.listMemoryUsers();
+        expect(users).toHaveLength(2);
+        const alice = users.find((user) => user.qq === '10001')!;
+        expect(alice.displayName).toBe('Alice');
+        expect(alice.total).toBe(2);
+        expect(alice.active).toBe(1);
+        expect(alice.privateCount).toBe(1);
+        expect(alice.groupCount).toBe(1);
+        expect(alice.lastUpdatedAt).toBeGreaterThan(0);
+        expect(users.find((user) => user.qq === '10002')!.displayName).toBe('');
+
+        await store.setProfileAddress('10001', 'Alice同学', true);
+        const addressed = (await store.listMemoryUsers()).find((user) => user.qq === '10001')!;
+        expect(addressed.address).toBe('Alice同学');
+        expect(addressed.addressManual).toBe(true);
+        expect((await store.getProfiles(['10001']))[0].address).toBe('Alice同学');
+
+        expect((await store.listMemoryUsers('Alice')).map((user) => user.qq)).toEqual(['10001']);
+        expect((await store.listMemoryUsers('猫')).map((user) => user.qq)).toEqual(['10002']);
+        expect(await store.listMemoryUsers('不存在')).toEqual([]);
+    });
+
+    it('upgrades a v3 schema by adding address columns without losing profiles', async () => {
+        await store.ensureConversation('private', '10001');
+        await store.appendMessage(input((await store.ensureConversation('private', '10001')).id, 'n1'));
+        await sql`alter table user_profiles drop column address`.execute(database!.db);
+        await sql`alter table user_profiles drop column address_manual`.execute(database!.db);
+        await database!.setMetadata('schema_version', '3');
+        await database!.migrate();
+        expect(await database!.getMetadata('schema_version')).toBe('4');
+        const profiles = await store.getProfiles(['10001']);
+        expect(profiles[0].displayName).toBe('Alice');
+        expect(profiles[0].address).toBe('');
+        await store.setProfileAddress('10001', 'Alice同学', true);
+        expect((await store.getProfiles(['10001']))[0].address).toBe('Alice同学');
     });
 
     it('keeps immutable raw messages when saving a summary', async () => {

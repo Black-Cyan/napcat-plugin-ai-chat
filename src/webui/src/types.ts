@@ -98,7 +98,11 @@ export interface Conversation {
 export interface PromptProfile { id: string; name: string; content: string; isDefault: boolean; createdAt: number; updatedAt: number }
 export interface UserMemory {
     id: string; qq: string; scope: 'private' | 'group'; content: string; importance: number; confidence: number
-    valid: boolean; useCount: number; updatedAt: number
+    valid: boolean; supersededBy: string | null; useCount: number; lastUsedAt: number | null; createdAt: number; updatedAt: number
+}
+export interface MemoryUserSummary {
+    qq: string; displayName: string; address: string; addressManual: boolean; total: number; active: number
+    privateCount: number; groupCount: number; lastUpdatedAt: number
 }
 export interface Sticker {
     id: string; path: string; mime: string; summary: string; tags: string[]

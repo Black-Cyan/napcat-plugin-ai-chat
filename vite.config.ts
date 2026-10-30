@@ -9,13 +9,17 @@ import { napcatHmrPlugin } from 'napcat-plugin-debug-cli/vite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const nodeModules = [
+const nodeModules = new Set([
     ...builtinModules,
     ...builtinModules.map((m) => `node:${m}`),
-].flat();
+]);
 
 // 依赖排除（如有外部依赖需排除，在此添加）
 const external: string[] = [];
+
+// builtinModules 随构建机的 Node 版本变化，且不含 node:sqlite 等仅以 node: 前缀暴露的内置模块。
+// 因此一律把 node: 前缀的导入视为外部模块，避免 Vite 按浏览器目标处理服务端内置模块。
+const isNodeExternal = (id: string): boolean => id.startsWith('node:') || nodeModules.has(id) || external.includes(id);
 
 /**
  * 递归复制目录
@@ -135,7 +139,7 @@ export default defineConfig({
             fileName: () => 'index.mjs',
         },
         rollupOptions: {
-            external: [...nodeModules, ...external],
+            external: isNodeExternal,
             output: {
                 inlineDynamicImports: true,
                 banner: `import { fileURLToPath as __fileURLToPath } from 'node:url';

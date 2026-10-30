@@ -76,6 +76,26 @@ export class MemoryService {
                 confidence: candidate.confidence,
             });
         }
+        await this.ensureAddresses(conversation, aliases);
+    }
+
+    private async ensureAddresses(conversation: Conversation, aliases: ParticipantAliases): Promise<void> {
+        const participants = aliases.entries().slice(0, 6);
+        if (!participants.length) return;
+        const profiles = new Map((await this.store.getProfiles(participants.map((entry) => entry.id))).map((profile) => [profile.qq, profile]));
+        for (const participant of participants) {
+            const profile = profiles.get(participant.id);
+            if (profile?.address || profile?.addressManual) continue;
+            const nickname = (profile?.displayName || participant.name).trim();
+            if (!nickname) continue;
+            try {
+                // Only the nickname feeds this task, so private-chat memories never shape a shared address.
+                const address = await this.tasks.deriveAddress(nickname, conversation);
+                if (address) await this.store.setProfileAddress(participant.id, address, false);
+            } catch {
+                // Address derivation is best-effort and retries on a later batch.
+            }
+        }
     }
 }
 
