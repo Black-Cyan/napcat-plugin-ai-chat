@@ -1,53 +1,66 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
-# Build output
+# Build outputs
 dist/
+dist.zip
+*.zip
+release/
 
-# IDE
+# IDE & Editors
 .vscode/*
 !.vscode/mcp.json
 .idea/
-.examole/
-!.example/plugin
+.example/
 *.swp
 *.swo
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Logs
-logs
+# Logs & debug
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
 .pnpm-debug.log*
+commits.txt
 
-# Environment
+# Environment & credentials
 .env
 .env.local
 .env.*.local
+*.pem
+*.key
 
-# TypeScript
+# TypeScript build cache
 *.tsbuildinfo
 
-# Diagnostic reports
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage
-coverage
+# Test & coverage
+coverage/
 *.lcov
-.nyc_output
+.nyc_output/
 
 # Temporary files
 *.tmp
 *.temp
+
+# Local chat databases and collected media
+*.sqlite
+*.sqlite-*
+.data/
+media/
+
+# AI agent & internal development documents
+.claude/
+.impeccable/
+.scratch/
+CLAUDE.md
+CONTEXT.md
+CONTEXT-MAP.md
+PRODUCT.md
+docs/
+scripts/hitl*

@@ -1,135 +1,172 @@
-import { useState, useEffect } from 'react'
-import type { PluginStatus } from '../types'
-import { IconPower, IconClock, IconActivity, IconDownload, IconRefresh, IconTerminal } from '../components/icons'
+import type { PluginConfig, PluginStatus } from '../types'
+import { useResource } from '../hooks/useResource'
+import { Badge, Button, ErrorNotice, Loading, Panel } from '../components/ui'
+import {
+    IconActivity,
+    IconClock,
+    IconDatabase,
+    IconDownload,
+    IconGroup,
+    IconMessage,
+    IconPlugin,
+    IconPower,
+    IconRefresh,
+    IconSmile,
+} from '../components/icons'
 
-interface StatusPageProps {
-    status: PluginStatus | null
-    onRefresh: () => void
-}
+export default function StatusPage({ status, onRefresh }: { status: PluginStatus | null; onRefresh: () => void }) {
+    const { data: config } = useResource<PluginConfig>('/config')
+    if (!status) return <Loading label="正在连接插件运行状态..." />
 
-/** 将毫秒格式化为可读时长 */
-function formatUptime(uptimeMs: number): string {
-    const seconds = Math.floor(uptimeMs / 1000)
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-
-    if (days > 0) return `${days}天 ${hours}小时 ${minutes}分 ${secs}秒`
-    if (hours > 0) return `${hours}小时 ${minutes}分 ${secs}秒`
-    if (minutes > 0) return `${minutes}分 ${secs}秒`
-    return `${secs}秒`
-}
-
-export default function StatusPage({ status, onRefresh }: StatusPageProps) {
-    const [displayUptime, setDisplayUptime] = useState<string>('-')
-    const [syncInfo, setSyncInfo] = useState<{ baseUptime: number; syncTime: number } | null>(null)
-
-    useEffect(() => {
-        if (status?.uptime !== undefined && status.uptime > 0) {
-            setSyncInfo({ baseUptime: status.uptime, syncTime: Date.now() })
-        }
-    }, [status?.uptime])
-
-    useEffect(() => {
-        if (!syncInfo) { setDisplayUptime('-'); return }
-        const updateUptime = () => {
-            const elapsed = Date.now() - syncInfo.syncTime
-            setDisplayUptime(formatUptime(syncInfo.baseUptime + elapsed))
-        }
-        updateUptime()
-        const interval = setInterval(updateUptime, 1000)
-        return () => clearInterval(interval)
-    }, [syncInfo])
-
-    if (!status) {
-        return (
-            <div className="flex items-center justify-center h-64 empty-state">
-                <div className="flex flex-col items-center gap-3">
-                    <div className="loading-spinner text-primary" />
-                    <div className="text-gray-400 text-sm">正在获取插件状态...</div>
-                </div>
-            </div>
-        )
-    }
-
-    const { config, stats } = status
-
-    const statCards = [
-        {
-            label: '插件状态',
-            value: config.enabled ? '运行中' : '已停用',
-            icon: <IconPower size={18} />,
-            color: config.enabled ? 'text-emerald-500' : 'text-red-400',
-            bg: config.enabled ? 'bg-emerald-500/10' : 'bg-red-500/10',
-        },
-        {
-            label: '运行时长',
-            value: displayUptime,
-            icon: <IconClock size={18} />,
-            color: 'text-primary',
-            bg: 'bg-primary/10',
-        },
-        {
-            label: '今日处理',
-            value: String(stats.todayProcessed),
-            icon: <IconActivity size={18} />,
-            color: 'text-amber-500',
-            bg: 'bg-amber-500/10',
-        },
-        {
-            label: '累计处理',
-            value: String(stats.processed),
-            icon: <IconDownload size={18} />,
-            color: 'text-violet-500',
-            bg: 'bg-violet-500/10',
-        },
-    ]
+    const engagement = config?.behavior.engagement ?? 0.7
+    const engagementPercent = Math.round(engagement * 100)
 
     return (
-        <div className="space-y-6">
-            {/* 统计卡片 */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
-                {statCards.map((card) => (
-                    <div key={card.label} className="card p-4 hover-lift">
-                        <div className="flex items-center justify-between mb-3">
-                            <span className="text-xs text-gray-400 font-medium">{card.label}</span>
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${card.bg} ${card.color} transition-transform duration-300 hover:scale-110`}>
-                                {card.icon}
-                            </div>
-                        </div>
-                        <div className="text-xl font-bold text-gray-900 dark:text-white">{card.value}</div>
+        <div className="page-stack">
+            <ErrorNotice message={status.initializationError} />
+
+            {/* Hero Card: Modern listening state */}
+            <section className={`hero-card ${status.ready ? 'is-active' : 'is-idle'}`}>
+                <div className="hero-content">
+                    <div className="hero-status-pill">
+                        <span className={`status-dot ${status.ready ? 'online' : 'offline'}`} />
+                        <span>{status.ready ? '正在倾听对话' : '等待初始化'}</span>
                     </div>
-                ))}
+                    <h3>{status.ready ? '正在自然参与聊天，等待值得加入的对话。' : '控制台在线，机器人环境尚未就绪。'}</h3>
+                    <p>
+                        {status.ready
+                            ? '新消息按会话顺序汇入批次；机器人根据意愿和上下文决策回复，也可返回静默。'
+                            : '请先在“模型配置”和“数据库”中完善基础连接设置，随后即可开启对话。'}
+                    </p>
+                </div>
+
+                <div className="hero-engagement-card">
+                    <div className="engagement-circle" style={{ '--percent': `${engagementPercent}%` } as React.CSSProperties}>
+                        <div className="circle-inner">
+                            <strong>{engagementPercent}%</strong>
+                            <small>参与意愿</small>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* Metrics Ledger */}
+            <div className="metrics-grid">
+                <div className="metric-card">
+                    <div className="metric-icon bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                        <IconMessage size={18} />
+                    </div>
+                    <div className="metric-data">
+                        <span>已保存消息</span>
+                        <strong>{(status.resources?.messages ?? 0).toLocaleString()}</strong>
+                    </div>
+                </div>
+
+                <div className="metric-card">
+                    <div className="metric-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                        <IconGroup size={18} />
+                    </div>
+                    <div className="metric-data">
+                        <span>活跃会话</span>
+                        <strong>{(status.resources?.conversations ?? 0).toLocaleString()}</strong>
+                    </div>
+                </div>
+
+                <div className="metric-card">
+                    <div className="metric-icon bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
+                        <IconActivity size={18} />
+                    </div>
+                    <div className="metric-data">
+                        <span>用户记忆</span>
+                        <strong>{(status.resources?.memories ?? 0).toLocaleString()}</strong>
+                    </div>
+                </div>
+
+                <div className="metric-card">
+                    <div className="metric-icon bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                        <IconSmile size={18} />
+                    </div>
+                    <div className="metric-data">
+                        <span>已收录表情</span>
+                        <strong>{(status.resources?.stickers ?? 0).toLocaleString()}</strong>
+                    </div>
+                </div>
             </div>
 
-            {/* 配置概览 */}
-            <div className="card p-5 hover-lift animate-fade-in-up">
-                <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        <IconTerminal size={16} className="text-gray-400" />
-                        基础信息
-                    </h3>
-                    <button onClick={onRefresh} className="btn-ghost btn text-xs px-2.5 py-1.5">
-                        <IconRefresh size={13} />
-                        刷新
-                    </button>
-                </div>
-                <div className="space-y-3">
-                    <InfoRow label="命令前缀" value={config.commandPrefix} />
-                    <InfoRow label="冷却时间" value={`${config.cooldownSeconds} 秒`} />
-                    <InfoRow label="调试模式" value={config.debug ? '开启' : '关闭'} />
-                </div>
+            {/* Two Column details: Queues and Runtime stats */}
+            <div className="two-column">
+                <Panel title="处理队列状态" description="会话内串行处理以保序，不同会话在并发上限内并行。">
+                    <div className="queue-grid">
+                        <div className="queue-box">
+                            <span className="queue-label">正在思考</span>
+                            <strong className="queue-val text-blue-600 dark:text-blue-400">{status.activeBatches}</strong>
+                            <small className="text-muted">个活跃并发任务</small>
+                        </div>
+                        <div className="queue-box">
+                            <span className="queue-label">等待就绪</span>
+                            <strong className="queue-val text-slate-700 dark:text-slate-300">{status.queuedBatches}</strong>
+                            <small className="text-muted">个排队消息批次</small>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-line text-xs text-muted">
+                        <div className="flex items-center gap-2">
+                            <span>系统状态：</span>
+                            <Badge tone={status.ready ? 'good' : 'warn'}>
+                                {status.ready ? '正常运行' : '等待就绪'}
+                            </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <IconDatabase size={13} />
+                            <span>当前驱动：{status.database}</span>
+                        </div>
+                    </div>
+                </Panel>
+
+                <Panel
+                    title="运行时健康度"
+                    description="只展示非敏感系统状态，不包含聊天正文或密钥。"
+                    actions={
+                        <Button onClick={onRefresh}>
+                            <IconRefresh size={13} />
+                            <span>刷新</span>
+                        </Button>
+                    }
+                >
+                    <dl className="detail-list">
+                        <div>
+                            <dt>累计处理批次</dt>
+                            <dd>{status.stats.processed.toLocaleString()}</dd>
+                        </div>
+                        <div>
+                            <dt>累计发送回复</dt>
+                            <dd>{status.stats.replies.toLocaleString()}</dd>
+                        </div>
+                        <div>
+                            <dt>持续运行时长</dt>
+                            <dd className="flex items-center gap-1.5">
+                                <IconClock size={13} className="text-muted" />
+                                {formatUptime(status.uptime)}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>已配置模型方案</dt>
+                            <dd className="flex items-center gap-1.5">
+                                <IconPlugin size={13} className="text-muted" />
+                                {config?.providers.length ?? 0} 个
+                            </dd>
+                        </div>
+                    </dl>
+                </Panel>
             </div>
         </div>
     )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="flex items-center justify-between py-1">
-            <span className="text-xs text-gray-400">{label}</span>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{value}</span>
-        </div>
-    )
+function formatUptime(ms: number): string {
+    const minutes = Math.floor(ms / 60000)
+    if (minutes < 60) return `${minutes} 分钟`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours} 小时 ${minutes % 60} 分钟`
+    return `${Math.floor(hours / 24)} 天 ${hours % 24} 小时`
 }

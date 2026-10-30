@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -59,12 +59,17 @@ jobs:
       - name: Install WebUI dependencies
         run: cd src/webui && pnpm install
 
+      - name: Typecheck and test
+        run: |
+          pnpm run typecheck
+          pnpm test
+
       - name: Build project
         run: pnpm run build
 
       - name: Prepare release package
         env:
-          PLUGIN_NAME: napcat-plugin-template
+          PLUGIN_NAME: napcat-plugin-ai-chat
         run: |
           # 创建临时目录用于组织文件
           mkdir -p release
@@ -80,7 +85,7 @@ jobs:
 
       - name: Verify zip contents
         run: |
-          PLUGIN_NAME="napcat-plugin-template"
+          PLUGIN_NAME="napcat-plugin-ai-chat"
           unzip -l ${PLUGIN_NAME}.zip
 
       - name: Collect git log
@@ -242,7 +247,7 @@ jobs:
           body_path: CHANGELOG.md
           draft: false
           files: |
-            napcat-plugin-template.zip
+            napcat-plugin-ai-chat.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

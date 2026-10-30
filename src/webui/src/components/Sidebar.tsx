@@ -1,64 +1,72 @@
 import type { PageId } from '../App'
-import { IconDashboard, IconSettings, IconGroup, IconGithub, IconPlugin, IconSun } from './icons'
+import {
+    IconActivity,
+    IconBrain,
+    IconDashboard,
+    IconDatabase,
+    IconDownload,
+    IconMessage,
+    IconPlugin,
+    IconSettings,
+    IconShield,
+    IconSmile,
+    IconTerminal,
+} from './icons'
 
-interface SidebarProps {
-    currentPage: PageId
-    onPageChange: (page: PageId) => void
-}
-
-const menuItems: { id: PageId; label: string; icon: React.ReactNode }[] = [
-    { id: 'status', label: '仪表盘', icon: <IconDashboard size={18} /> },
-    { id: 'config', label: '插件配置', icon: <IconSettings size={18} /> },
-    { id: 'groups', label: '群管理', icon: <IconGroup size={18} /> },
+const groups: Array<{ label: string; items: Array<{ id: PageId; label: string; icon: React.ReactNode }> }> = [
+    { label: '对话', items: [
+        { id: 'status', label: '对话现场', icon: <IconDashboard size={17} /> },
+        { id: 'conversations', label: '会话管理', icon: <IconMessage size={17} /> },
+        { id: 'memories', label: '用户记忆', icon: <IconActivity size={17} /> },
+        { id: 'stickers', label: '表情包库', icon: <IconSmile size={17} /> },
+    ] },
+    { label: '智能', items: [
+        { id: 'behavior', label: '行为与上下文', icon: <IconSettings size={17} /> },
+        { id: 'providers', label: '模型配置', icon: <IconPlugin size={17} /> },
+        { id: 'prompts', label: '提示词方案', icon: <IconBrain size={17} /> },
+    ] },
+    { label: '系统', items: [
+        { id: 'blacklist', label: '访问控制', icon: <IconShield size={17} /> },
+        { id: 'database', label: '数据库', icon: <IconDatabase size={17} /> },
+        { id: 'data', label: '备份与迁移', icon: <IconDownload size={17} /> },
+        { id: 'logs', label: '运行日志', icon: <IconTerminal size={17} /> },
+    ] },
 ]
 
-export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-    return (
-        <aside className="w-60 flex-shrink-0 bg-white dark:bg-[#1a1b1d] border-r border-gray-200 dark:border-gray-800 flex flex-col">
-            {/* Logo */}
-            <div className="px-5 py-6 flex items-center gap-3">
-                <div className="sidebar-logo w-8 h-8 flex items-center justify-center bg-brand-500 rounded-lg text-white">
-                    <IconPlugin size={18} />
-                </div>
-                <div>
-                    <h1 className="font-bold text-sm leading-tight text-gray-900 dark:text-white">Plugin Template</h1>
-                    <p className="text-[10px] text-gray-400 font-medium tracking-wider">NAPCAT PLUGIN</p>
-                </div>
+export default function Sidebar({ currentPage, onPageChange }: { currentPage: PageId; onPageChange: (page: PageId) => void }) {
+    return <aside className="sidebar">
+        <div className="brand">
+            <div className="brand-mark">
+                <span />
+                <span />
+                <span />
             </div>
-
-            {/* Nav */}
-            <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto nav-stagger">
-                {menuItems.map((item) => (
-                    <div
-                        key={item.id}
-                        className={`sidebar-item ${currentPage === item.id ? 'active' : ''}`}
-                        onClick={() => onPageChange(item.id)}
-                    >
-                        <span className="sidebar-icon">{item.icon}</span>
-                        <span>{item.label}</span>
-                    </div>
-                ))}
-            </nav>
-
-            {/* Footer */}
-            <div className="px-3 pb-2">
-                <a
-                    href="https://github.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="sidebar-item no-underline"
-                >
-                    <IconGithub size={18} />
-                    <span>反馈问题</span>
-                </a>
+            <div>
+                <strong>AI Chat</strong>
+                <small>NapCat Plugin</small>
             </div>
-
-            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800">
-                <div className="flex items-center justify-center w-full py-2 rounded-lg text-gray-500 bg-gray-50 dark:bg-gray-800/50 cursor-default text-xs gap-2">
-                    <IconSun size={14} className="opacity-60" />
-                    <span>跟随系统主题</span>
+        </div>
+        <nav className="sidebar-nav">
+            {groups.map((group) => (
+                <div className="nav-group" key={group.label}>
+                    <span className="nav-label">{group.label}</span>
+                    {group.items.map((item) => (
+                        <button
+                            key={item.id}
+                            className={`nav-item ${currentPage === item.id ? 'active' : ''}`}
+                            onClick={() => onPageChange(item.id)}
+                        >
+                            {item.icon}
+                            <span>{item.label}</span>
+                        </button>
+                    ))}
                 </div>
-            </div>
-        </aside>
-    )
+            ))}
+        </nav>
+        <div className="sidebar-footer">
+            <a className="repo-link" href="https://github.com/Black-Cyan/napcat-plugin-ai-chat" target="_blank" rel="noreferrer">
+                文档与源码 ↗
+            </a>
+        </div>
+    </aside>
 }

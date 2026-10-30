@@ -1,45 +1,58 @@
 {
-  "name": "napcat-plugin-template",
-  "plugin": "插件模板",
-  "version": "1.0.0",
+  "name": "napcat-plugin-ai-chat",
+  "plugin": "QQ 智能聊天机器人",
+  "version": "0.1.0",
   "type": "module",
   "main": "index.mjs",
-  "description": "NapCat 插件开发模板 - 快速开始你的插件开发",
-  "author": "Your Name",
+  "description": "支持 OpenAI、Anthropic 与 Google AI 的 NapCat 智能聊天机器人",
+  "author": "BlackCyan",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": [
     "napcat",
     "plugin",
     "qq",
-    "template"
+    "ai",
+    "chatbot"
   ],
   "napcat": {
     "tags": [
+      "AI",
       "工具"
     ],
-    "minVersion": "4.14.0",
-    "homepage": ""
+    "minVersion": "4.15.1",
+    "homepage": "https://github.com/Black-Cyan/napcat-plugin-ai-chat"
   },
   "dependencies": {
-    "napcat-types": "0.0.16"
+    "kysely": "^0.28.8",
+    "mysql2": "^3.15.3",
+    "jimp": "^0.22.12",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.3.1",
     "@types/express": "^5.0.6",
-    "@types/node": "^20.19.33",
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.15.6",
     "napcat-plugin-debug-cli": "^1.2.8",
     "typescript": "^5.9.3",
     "vite": "^6.4.1",
+    "vitest": "^3.2.4",
     "ws": "^8.19.0"
   },
   "scripts": {
     "build": "vite build",
-    "build:webui": "cd src/webui && pnpm install && pnpm run build",
-    "dev:webui": "cd src/webui && pnpm run dev",
+    "build:webui": "pnpm --dir src/webui run build",
+    "dev:webui": "pnpm --dir src/webui run dev",
     "watch": "vite build --watch",
     "dev": "vite build --watch",
     "push": "vite build",
     "deploy": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:dist": "node scripts/smoke-plugin.mjs"
   }
 }

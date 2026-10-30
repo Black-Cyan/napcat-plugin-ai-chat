@@ -1,51 +1,271 @@
-/**
- * 类型定义文件
- * 定义插件内部使用的接口和类型
- *
- * 注意：OneBot 相关类型（OB11Message, OB11PostSendMsg 等）
- * 以及插件框架类型（NapCatPluginContext, PluginModule 等）
- * 均来自 napcat-types 包，无需在此重复定义。
- */
+export type ConversationType = 'private' | 'group';
+export type ProviderType = 'openai' | 'anthropic' | 'google';
+export type DatabaseDriver = 'sqlite' | 'postgres' | 'mysql';
+export type MemoryScope = 'private' | 'group';
+export type AccessMode = 'blacklist' | 'whitelist';
+export type AccessListType = 'blacklist' | 'whitelist';
+export type AccessSubjectType = 'user' | 'group';
 
-// ==================== 插件配置 ====================
+export interface AccessList {
+    id: string;
+    type: AccessListType;
+    name: string;
+    description: string;
+    isDefault: boolean;
+    createdAt: number;
+    updatedAt: number;
+}
 
-/**
- * 插件主配置接口
- * 在此定义你的插件所需的所有配置项
- */
-export interface PluginConfig {
-    /** 全局开关：是否启用插件功能 */
+export interface AccessListMember {
+    id: string;
+    listId: string;
+    subjectType: AccessSubjectType;
+    subjectId: string;
+    note: string;
+    createdAt: number;
+}
+
+export interface AccessControlState {
+    mode: AccessMode;
+    activeBlacklistId: string | null;
+    activeWhitelistId: string | null;
+}
+
+export interface AccessPolicySnapshot {
+    mode: AccessMode;
+    activeBlacklistId: string | null;
+    activeWhitelistId: string | null;
+    activeBlacklistName: string | null;
+    activeWhitelistName: string | null;
+    userBlacklist: string[];
+    groupBlacklist: string[];
+    userWhitelist: string[];
+    groupWhitelist: string[];
+}
+
+export interface NapCatContact {
+    id: string;
+    name: string;
+    type: AccessSubjectType;
+    remark?: string;
+    memberCount?: number;
+}
+
+export function normalizeSubjectId(id: string | number): string {
+    const raw = String(id ?? '').trim();
+    const stripped = raw.replace(/^0+(\d)/, '$1');
+    if (!/^\d{1,64}$/.test(stripped)) {
+        throw new Error('QQ 号或群号必须为 1-64 位有效数字');
+    }
+    return stripped;
+}
+
+export interface ProviderProfile {
+    id: string;
+    name: string;
+    type: ProviderType;
+    model: string;
+    apiKey: string;
+    baseUrl?: string;
+    contextWindow: number;
+    maxOutputTokens: number;
+    temperature: number;
+    vision: boolean;
+    toolCalling: boolean;
+    structuredOutput: boolean;
+}
+
+export interface GoogleModelInfo {
+    name: string;
+    baseModelId: string;
+    displayName: string;
+    description: string;
+    supportedGenerationMethods: string[];
+    inputTokenLimit: number;
+    outputTokenLimit: number;
+    thinking: boolean;
+}
+
+export interface GoogleModelDiscovery {
+    models: GoogleModelInfo[];
+    fetchedAt: number;
+    cached: boolean;
+    stale: boolean;
+    error?: string;
+}
+
+export interface DatabaseConfig {
+    driver: DatabaseDriver;
+    sqliteFile: string;
+    connectionString: string;
+    poolSize: number;
+    tls: boolean;
+}
+
+export interface BehaviorConfig {
+    engagement: number;
+    quietMs: number;
+    maxWaitMs: number;
+    maxBatchMessages: number;
+    replyCooldownMs: number;
+    sameSourceBurstThreshold: number;
+    botRoundLimit: number;
+    maxConcurrentTasks: number;
+    recentMessageCount: number;
+    maxInputTokens: number;
+    inputBudgetRatio: number;
+    compressionTriggerRatio: number;
+    maxContextRetries: number;
+}
+
+export interface StickerConfig {
     enabled: boolean;
-    /** 调试模式：启用后输出详细日志 */
-    debug: boolean;
-    /** 触发命令前缀，默认为 #cmd */
-    commandPrefix: string;
-    /** 同一命令请求冷却时间（秒），0 表示不限制 */
-    cooldownSeconds: number;
-    /** 按群的单独配置 */
-    groupConfigs: Record<string, GroupConfig>;
-    // TODO: 在这里添加你的插件配置项
+    autoCollect: boolean;
+    autoSend: boolean;
+    maxImageBytes: number;
+    cacheLimitMb: number;
 }
 
-/**
- * 群配置
- */
-export interface GroupConfig {
-    /** 是否启用此群的功能 */
+export interface SessionOverride {
     enabled?: boolean;
-    // TODO: 在这里添加群级别的配置项
+    promptProfileId?: string | null;
+    providerProfileId?: string | null;
+    behavior?: Partial<BehaviorConfig>;
+    vision?: boolean;
+    stickers?: Partial<StickerConfig>;
 }
 
-// ==================== API 响应 ====================
+export interface TaskProviderConfig {
+    summary: string | null;
+    memory: string | null;
+    vision: string | null;
+}
 
-/**
- * 统一 API 响应格式
- */
+export interface PluginConfig {
+    enabled: boolean;
+    debug: boolean;
+    commandPrefix: '#' | string;
+    owners: string[];
+    defaultProviderId: string | null;
+    taskProviders: TaskProviderConfig;
+    providers: ProviderProfile[];
+    database: DatabaseConfig;
+    behavior: BehaviorConfig;
+    privateDefaults: SessionOverride;
+    groupDefaults: SessionOverride;
+    stickers: StickerConfig;
+    stats: {
+        processed: number;
+        replies: number;
+        startedAt: number;
+    };
+}
+
+export interface Conversation {
+    id: string;
+    type: ConversationType;
+    targetId: string;
+    title: string;
+    nextSeq: number;
+    override: SessionOverride;
+    promptProfileId: string | null;
+    providerProfileId: string | null;
+    botRounds: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export type SenderKind = 'human' | 'bot' | 'self';
+
+export interface ChatMessage {
+    id: string;
+    conversationId: string;
+    seq: number;
+    batchId: string | null;
+    napcatMessageId: string | null;
+    senderId: string | null;
+    senderName: string;
+    senderKind: SenderKind;
+    role: 'user' | 'assistant';
+    content: MessageSegment[];
+    rawEvent: unknown;
+    occurredAt: number;
+    receivedAt: number;
+}
+
+export interface MessageSegment {
+    type: string;
+    data: Record<string, unknown>;
+}
+
+export interface MessageBatch {
+    id: string;
+    conversationId: string;
+    status: 'pending' | 'ready' | 'processing' | 'completed' | 'skipped' | 'failed';
+    startSeq: number;
+    endSeq: number;
+    messageCount: number;
+    firstMessageAt: number;
+    lastMessageAt: number;
+    attempts: number;
+    error: string | null;
+}
+
+export interface PromptProfile {
+    id: string;
+    name: string;
+    content: string;
+    isDefault: boolean;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface UserMemory {
+    id: string;
+    qq: string;
+    scope: MemoryScope;
+    content: string;
+    importance: number;
+    confidence: number;
+    sourceConversationId: string | null;
+    sourceMessageId: string | null;
+    valid: boolean;
+    supersededBy: string | null;
+    useCount: number;
+    lastUsedAt: number | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface Sticker {
+    id: string;
+    napcatKey: string | null;
+    sha256: string;
+    phash: string | null;
+    path: string;
+    mime: string;
+    summary: string;
+    tags: string[];
+    safetyStatus: 'safe' | 'rejected' | 'unknown';
+    seenCount: number;
+    useCount: number;
+    enabled: boolean;
+    firstSeenAt: number;
+    lastSeenAt: number;
+    lastUsedAt: number | null;
+}
+
 export interface ApiResponse<T = unknown> {
-    /** 状态码，0 表示成功，-1 表示失败 */
-    code: number;
-    /** 错误信息（仅错误时返回） */
-    message?: string;
-    /** 响应数据（仅成功时返回） */
+    code: 0 | -1;
     data?: T;
+    message?: string;
+}
+
+export interface RuntimeStatus {
+    ready: boolean;
+    database: DatabaseDriver;
+    activeBatches: number;
+    queuedBatches: number;
+    uptime: number;
+    stats: PluginConfig['stats'];
 }

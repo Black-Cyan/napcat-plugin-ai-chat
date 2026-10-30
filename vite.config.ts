@@ -52,17 +52,11 @@ function copyAssetsPlugin() {
                 // 1. 构建 WebUI 前端
                 const webuiRoot = resolve(__dirname, 'src/webui');
                 try {
-                    // 先确保 webui 子项目的依赖已安装
                     if (!fs.existsSync(resolve(webuiRoot, 'node_modules'))) {
-                        console.log('[copy-assets] (o\'v\'o) 正在安装 WebUI 依赖...');
-                        execSync('pnpm install', {
-                            cwd: webuiRoot,
-                            stdio: 'pipe',
-                        });
-                        console.log('[copy-assets] (o\'v\'o) WebUI 依赖安装完成');
+                        throw new Error('WebUI 依赖未安装，请先运行 pnpm --dir src/webui install');
                     }
 
-                    console.log('[copy-assets] (o\'v\'o) 正在构建 WebUI...');
+                    console.log('[copy-assets] 正在构建 WebUI...');
                     const webuiEnv = { ...process.env };
                     delete webuiEnv.NODE_ENV;
                     execSync('pnpm run build', {
@@ -72,7 +66,7 @@ function copyAssetsPlugin() {
                     });
                     console.log('[copy-assets] (o\'v\'o) WebUI 构建完成');
                 } catch (e: any) {
-                    console.error('[copy-assets] (;_;) WebUI 构建失败:', e.stdout?.toString().slice(-300) || e.message);
+                    throw new Error(`WebUI 构建失败: ${e.stdout?.toString().slice(-3000) || e.message}`, { cause: e });
                 }
 
                 // 2. 复制 webui 构建产物
@@ -97,7 +91,8 @@ function copyAssetsPlugin() {
                         main: pkg.main,
                         description: pkg.description,
                         author: pkg.author,
-                        dependencies: pkg.dependencies,
+                        dependencies: {},
+                        engines: pkg.engines,
                     };
                     if (pkg.napcat) {
                         distPkg.napcat = pkg.napcat;
@@ -118,13 +113,15 @@ function copyAssetsPlugin() {
 
                 console.log('[copy-assets] (*\'v\'*) 资源复制完成！');
             } catch (error) {
-                console.error('[copy-assets] (;_;) 资源复制失败:', error);
+                console.error('[copy-assets] 资源复制失败:', error);
+                throw error;
             }
         },
     };
 }
 
 export default defineConfig({
+    define: { self: 'globalThis' },
     resolve: {
         conditions: ['node', 'default'],
     },
@@ -141,6 +138,10 @@ export default defineConfig({
             external: [...nodeModules, ...external],
             output: {
                 inlineDynamicImports: true,
+                banner: `import { fileURLToPath as __fileURLToPath } from 'node:url';
+import { dirname as __pathDirname } from 'node:path';
+const __filename = __fileURLToPath(import.meta.url);
+const __dirname = __pathDirname(__filename);`,
             },
         },
         outDir: 'dist',
