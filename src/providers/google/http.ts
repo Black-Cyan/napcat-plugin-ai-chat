@@ -132,7 +132,10 @@ function googleHttpError(status: number, payload: any): ProviderError {
         return new ProviderError('Google 输入上下文超出模型限制', status, true, false);
     }
     if (status === 404) return new ProviderError('Google 模型或接口不存在，请刷新模型列表并重新选择', status, false, false);
-    if (status === 429) return new ProviderError('Google API 请求受到限流，请稍后重试', status, false, true);
+    if (status === 429) {
+        const detail = diagnostic ? `（${diagnostic}）` : '';
+        return new ProviderError(`Google API 请求受到限流${detail}，请稍后重试`, status, false, true);
+    }
     const retryable = status === 408 || status === 409 || status >= 500;
     return new ProviderError(`Google 请求失败（HTTP ${status}${code ? ` ${code}` : ''}）`, status, false, retryable);
 }

@@ -159,4 +159,14 @@ describe('Google streaming and errors', () => {
         expect(error.message).toContain('鉴权失败');
         expect(error.message).not.toContain('secret');
     });
+
+    it('surfaces Google rate-limit diagnostic message on 429', async () => {
+        vi.stubGlobal('fetch', mockGoogle(() => json({
+            error: { status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded for quota metric Queries per minute' },
+        }, 429)));
+        const error = await new GoogleAdapter().generate({ profile: profile(), messages: [textMessage('user', 'hello')] }).catch((reason) => reason);
+        expect(error.status).toBe(429);
+        expect(error.retryable).toBe(true);
+        expect(error.message).toContain('Queries per minute');
+    });
 });
