@@ -96,3 +96,14 @@ export async function getFriendList(ctx: NapCatPluginContext, noCache = false): 
         remark: f.remark || undefined,
     }));
 }
+
+export interface NapCatImageResult {
+    file?: string;
+    url?: string;
+    base64?: string;
+    src?: string;
+}
+
+export async function getImage(ctx: NapCatPluginContext, file: string): Promise<NapCatImageResult> {
+    return callAction<NapCatImageResult>(ctx, 'get_image', { file });
+}

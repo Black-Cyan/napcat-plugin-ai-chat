@@ -4,11 +4,10 @@ import { textPart } from '../../providers/types';
 import { Store } from '../../database/store';
 import type { ChatMessage, Conversation } from '../../types';
 import { ParticipantAliases } from './participants';
-import { deleteMessage, poke, setMessageEmojiLike } from '../../napcat/actions';
+import { deleteMessage, setMessageEmojiLike } from '../../napcat/actions';
 import { pluginState } from '../../core/state';
 import { StickerService } from '../stickers/sticker-service';
 
-const participantSchema = z.object({ participant: z.string().optional() }).strict();
 const recallSchema = z.object({ message_id: z.string().min(1) }).strict();
 const reactSchema = z.object({ message_id: z.string().min(1), emoji_id: z.string().min(1).max(32) }).strict();
 const stickerSchema = z.object({ sticker_id: z.string().uuid() }).strict();
@@ -20,11 +19,6 @@ export class ToolBroker {
     definitions(enabled: boolean): ProviderToolDefinition[] {
         if (!enabled) return [];
         return [
-            {
-                name: 'poke',
-                description: '拍一拍当前会话中的一名参与者。participant 使用当前批次别名，私聊可省略。',
-                parameters: objectSchema({ participant: { type: 'string' } }),
-            },
             {
                 name: 'recall_message',
                 description: '撤回当前会话中本机器人自己发送的一条消息。',
@@ -79,13 +73,6 @@ export class ToolBroker {
     }
 
     private async perform(conversation: Conversation, messages: ChatMessage[], aliases: ParticipantAliases, call: ProviderToolCall): Promise<unknown> {
-        if (call.name === 'poke') {
-            const args = participantSchema.parse(call.arguments);
-            const userId = conversation.type === 'private' ? conversation.targetId : aliases.id(args.participant) ?? aliases.ids()[0];
-            if (!userId) throw new Error('拍一拍目标不在当前批次');
-            await poke(pluginState.ctx, conversation, userId);
-            return { ok: true };
-        }
         if (call.name === 'recall_message') {
             const args = recallSchema.parse(call.arguments);
             if (!messages.some((message) => message.napcatMessageId === args.message_id)) {
@@ -109,7 +96,7 @@ export class ToolBroker {
             await this.store.appendMessage({
                 conversationId: conversation.id, napcatMessageId: messageId, senderId: pluginState.selfId || null,
                 senderName: pluginState.selfName || 'assistant', senderKind: 'self', role: 'assistant',
-                content: [{ type: 'image', data: { sticker_id: args.sticker_id } }], rawEvent: { tool: 'send_sticker' },
+                content: [{ type: 'image', data: { sticker_id: args.sticker_id, sub_type: 7 } }], rawEvent: { tool: 'send_sticker' },
                 occurredAt: Date.now(), batch: false,
             });
             return { ok: true, message_id: messageId };

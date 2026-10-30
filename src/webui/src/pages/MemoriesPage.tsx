@@ -12,7 +12,18 @@ export default function MemoriesPage() {
         <Panel title="用户记忆" description="私聊记忆只能用于私聊；群聊记忆可跨群及用于私聊。">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索 QQ 号或记忆内容" />
         </Panel>
-        {loading && !data ? <Loading /> : <div className="memory-list">{data?.map((memory) => <MemoryRow key={memory.id} memory={memory} onChange={refresh} />)}</div>}
+        {loading && !data ? (
+            <Loading />
+        ) : data && data.length > 0 ? (
+            <div className="memory-list">{data.map((memory) => <MemoryRow key={memory.id} memory={memory} onChange={refresh} />)}</div>
+        ) : (
+            <div className="empty" style={{ padding: '3rem 1rem', textAlign: 'center' }}>
+                <strong style={{ display: 'block', marginBottom: '0.5rem' }}>暂无用户记忆</strong>
+                <span className="text-xs text-muted" style={{ color: 'var(--color-muted)' }}>
+                    {search ? '没有匹配搜索条件的用户记忆。' : '当用户在聊天中提及个人事实或偏好（如兴趣爱好、常住地、职业习惯等）时，AI 会在后台自动提炼并记录在此处。'}
+                </span>
+            </div>
+        )}
     </div>
 }
 

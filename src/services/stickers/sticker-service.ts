@@ -1,15 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import Jimp from 'jimp';
 import { Store } from '../../database/store';
 import { pluginState } from '../../core/state';
 import type { ChatMessage, Conversation, MessageSegment, Sticker } from '../../types';
 import type { ProviderContentPart } from '../../providers/types';
-import { addCustomFace, sendMessage } from '../../napcat/actions';
-import { imageSegment } from '../../napcat/message-segments';
+import { addCustomFace, getImage, sendMessage } from '../../napcat/actions';
+import { imageSegment, stickerSegment } from '../../napcat/message-segments';
 import { AITasks } from '../ai/tasks';
-import { downloadImage, type DownloadedImage } from './downloader';
+import { ALLOWED_MIME, detectMimeFromBuffer, downloadImage, type DownloadedImage } from './downloader';
 import { effectiveStickers } from '../chat/config';
 
 export class StickerService {
@@ -109,7 +110,7 @@ export class StickerService {
         const mediaRoot = path.resolve(pluginState.getDataFilePath('media'));
         const resolved = path.resolve(sticker.path);
         if (!resolved.startsWith(`${mediaRoot}${path.sep}`)) throw new Error('表情包路径无效');
-        const result = await sendMessage(pluginState.ctx, conversation, [imageSegment(resolved)]);
+        const result = await sendMessage(pluginState.ctx, conversation, [stickerSegment(resolved)]);
         await this.store.markStickerUsed(id);
         return result.messageId;
     }
@@ -133,10 +134,103 @@ export class StickerService {
     }
 
     private async download(segment: MessageSegment, maxBytes: number): Promise<DownloadedImage> {
-        const candidates = [segment.data.url, segment.data.file];
-        const source = candidates.find((value) => typeof value === 'string' && /^https?:\/\//i.test(value));
-        if (typeof source !== 'string') throw new Error('消息中没有可安全下载的图片 URL');
-        return downloadImage(source, maxBytes);
+        const candidates = [segment.data.url, segment.data.file, segment.data.src]
+            .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+
+        for (const candidate of candidates) {
+            const b64 = tryParseBase64(candidate, maxBytes);
+            if (b64) return b64;
+            const local = await tryReadLocalImage(candidate, maxBytes);
+            if (local) return local;
+        }
+
+        const httpSource = candidates.find((v) => /^https?:\/\//i.test(v.trim()));
+        if (httpSource) {
+            try {
+                return await downloadImage(httpSource, maxBytes);
+            } catch {
+                // If direct HTTP download failed, fall back to NapCat action
+            }
+        }
+
+        if (pluginState.hasContext) {
+            const fileIdentifier = segment.data.file || segment.data.file_id || segment.data.url;
+            if (typeof fileIdentifier === 'string' && fileIdentifier.trim()) {
+                try {
+                    const res = await getImage(pluginState.ctx, fileIdentifier.trim());
+                    if (res) {
+                        if (typeof res.base64 === 'string' && res.base64) {
+                            const parsed = tryParseBase64(res.base64, maxBytes);
+                            if (parsed) return parsed;
+                        }
+                        if (typeof res.url === 'string' && /^https?:\/\//i.test(res.url)) {
+                            try {
+                                return await downloadImage(res.url, maxBytes);
+                            } catch { /* continue */ }
+                        }
+                        if (typeof res.file === 'string' && res.file) {
+                            const b64 = tryParseBase64(res.file, maxBytes);
+                            if (b64) return b64;
+                            const local = await tryReadLocalImage(res.file, maxBytes);
+                            if (local) return local;
+                            if (/^https?:\/\//i.test(res.file)) {
+                                return await downloadImage(res.file, maxBytes);
+                            }
+                        }
+                    }
+                } catch {
+                    // get_image fallback failed
+                }
+            }
+        }
+
+        throw new Error('消息中没有可安全下载的图片 URL 或获取图片失败');
+    }
+}
+
+async function tryReadLocalImage(candidate: string, maxBytes: number): Promise<DownloadedImage | null> {
+    let filePath = candidate.trim();
+    if (filePath.startsWith('file://')) {
+        try {
+            filePath = fileURLToPath(filePath);
+        } catch {
+            return null;
+        }
+    }
+    if (!path.isAbsolute(filePath)) return null;
+    try {
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile() || stat.size > maxBytes) return null;
+        const buffer = await fs.readFile(filePath);
+        const mime = detectMimeFromBuffer(buffer);
+        if (!mime || !ALLOWED_MIME.has(mime)) return null;
+        return { buffer, mime, sourceUrl: `file://${filePath}` };
+    } catch {
+        return null;
+    }
+}
+
+function tryParseBase64(candidate: string, maxBytes: number): DownloadedImage | null {
+    let raw = candidate.trim();
+    let explicitMime: string | null = null;
+    const dataUrlMatch = raw.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/is);
+    if (dataUrlMatch) {
+        explicitMime = dataUrlMatch[1].toLocaleLowerCase();
+        raw = dataUrlMatch[2].trim();
+    } else if (raw.startsWith('base64://')) {
+        raw = raw.slice('base64://'.length).trim();
+    } else {
+        return null;
+    }
+    try {
+        const buffer = Buffer.from(raw, 'base64');
+        if (buffer.length === 0 || buffer.length > maxBytes) return null;
+        let mime = detectMimeFromBuffer(buffer) || explicitMime;
+        if (mime === 'image/jpg') mime = 'image/jpeg';
+        if (!mime || !ALLOWED_MIME.has(mime)) return null;
+        return { buffer, mime, sourceUrl: 'data:image' };
+    } catch {
+        return null;
     }
 }
 

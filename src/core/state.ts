@@ -12,9 +12,17 @@ class PluginState {
     selfId = '';
     selfName = '';
 
+    get hasContext(): boolean {
+        return this.context !== null;
+    }
+
     get ctx(): NapCatPluginContext {
         if (!this.context) throw new Error('插件尚未初始化');
         return this.context;
+    }
+
+    setContextForTest(ctx: NapCatPluginContext | null): void {
+        this.context = ctx;
     }
 
     get logger(): PluginLogger {

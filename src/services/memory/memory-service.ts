@@ -2,6 +2,7 @@ import { Store } from '../../database/store';
 import type { ChatMessage, Conversation, MemoryScope, UserMemory } from '../../types';
 import { ParticipantAliases } from '../chat/participants';
 import { AITasks } from '../ai/tasks';
+import { runtimeLogs } from '../../core/log-buffer';
 
 export class MemoryService {
     constructor(private readonly store: Store, private readonly tasks: AITasks) {}
@@ -36,7 +37,20 @@ export class MemoryService {
         );
         const allowedExisting = new Set(existing.map((memory) => memory.id));
         for (const candidate of extracted) {
-            const qq = aliases.id(candidate.participant);
+            let qq = aliases.id(candidate.participant);
+            if (!qq) {
+                const byName = aliases.entries().find((entry) =>
+                    entry.name.toLocaleLowerCase() === candidate.participant.toLocaleLowerCase()
+                    || entry.alias.toLocaleLowerCase() === candidate.participant.toLocaleLowerCase()
+                );
+                if (byName) qq = byName.id;
+            }
+            if (!qq && /^\d{5,12}$/.test(candidate.participant.trim())) {
+                qq = candidate.participant.trim();
+            }
+            if (!qq && aliases.ids().length === 1) {
+                qq = aliases.ids()[0];
+            }
             if (!qq || !candidate.content.trim()) continue;
             const duplicate = existing.some((memory) => memory.qq === qq && memory.scope === conversation.type && normalize(memory.content) === normalize(candidate.content));
             if (duplicate) continue;
@@ -54,6 +68,13 @@ export class MemoryService {
                 const previous = existing.find((memory) => memory.id === candidate.supersedes);
                 if (previous?.qq === qq) await this.store.supersedeMemory(candidate.supersedes, saved[0]);
             }
+            runtimeLogs.add('info', `提炼用户记忆 [QQ ${qq}]: ${candidate.content.slice(0, 50)}`, 'system', {
+                qq,
+                scope: conversation.type,
+                content: candidate.content,
+                importance: candidate.importance,
+                confidence: candidate.confidence,
+            });
         }
     }
 }

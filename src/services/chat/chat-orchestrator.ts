@@ -149,9 +149,7 @@ export class ChatOrchestrator {
                 await this.participation.noteOutcome(conversation, messages, sent > 0, decision.botOnly);
                 await this.store.markMemoriesUsed(composed.memories.map((memory) => memory.id));
                 pluginState.incrementProcessed(sent > 0);
-                if (sent > 0 || response.text.trim() === 'NO_REPLY') {
-                    this.runBackgroundTasks(conversation, messages, aliases);
-                }
+                this.runBackgroundTasks(conversation, messages, aliases);
                 return;
             }
         } catch (error) {
@@ -175,7 +173,15 @@ export class ChatOrchestrator {
                 this.memories.updateFromBatch(conversation, messages, aliases),
                 this.stickers.processBatch(conversation, messages),
             ]);
-            if (results.some((result) => result.status === 'rejected')) pluginState.logger.debug('部分后台记忆或表情任务失败，原始消息未受影响');
+            for (const result of results) {
+                if (result.status === 'rejected') {
+                    const diag = safeDiagnostic(result.reason);
+                    if (pluginState.config.debug) {
+                        runtimeLogs.add('debug', "后台任务（记忆/表情）失败：" + diag, 'system', { error: diag });
+                    }
+                    pluginState.logger.debug("后台任务失败：" + diag);
+                }
+            }
         });
         this.backgroundChains.set(conversation.id, task);
         void task.finally(() => {

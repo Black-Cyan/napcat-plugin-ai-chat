@@ -121,6 +121,8 @@ async function googleContents(messages: ProviderMessage[]): Promise<GoogleConten
 
 async function googlePart(part: ProviderContentPart): Promise<GooglePart> {
     if (part.type === 'text') return { text: part.text };
+    let mime = (part.mime || '').toLocaleLowerCase().trim();
+    if (mime === 'image/jpg') mime = 'image/jpeg';
     if (part.mime === 'image/gif') {
         try {
             const image = await Jimp.read(Buffer.from(part.data, 'base64'));
@@ -130,10 +132,10 @@ async function googlePart(part: ProviderContentPart): Promise<GooglePart> {
             throw new ProviderError('无法将 GIF 转换为 Gemini 支持的 PNG 图片', 400, false, false);
         }
     }
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(part.mime)) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(mime)) {
         throw new ProviderError(`Gemini 不支持内联图片类型 ${part.mime}`, 400, false, false);
     }
-    return { inlineData: { mimeType: part.mime, data: part.data } };
+    return { inlineData: { mimeType: mime, data: part.data } };
 }
 
 function functionResponsePart(message: ProviderMessage): GooglePart {

@@ -47,22 +47,101 @@ export function normalizeMessage(event: any): NormalizedIncoming | null {
     };
 }
 
+export function sanitizeSegmentData(data: Record<string, any>): Record<string, any> {
+    const cleaned = { ...data };
+    if (typeof cleaned.url === 'string') {
+        cleaned.url = cleaned.url.replace(/&amp;/g, '&').trim();
+    }
+    if (typeof cleaned.file === 'string') {
+        cleaned.file = cleaned.file.replace(/&amp;/g, '&').trim();
+    }
+    return cleaned;
+}
+
+export function parseCqCode(text: string): MessageSegment[] {
+    if (!text) return [];
+    const segments: MessageSegment[] = [];
+    const cqPattern = /\[CQ:([a-zA-Z0-9_-]+)((?:,[a-zA-Z0-9_-]+=[^,\]]*)*)\]/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = cqPattern.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+            const before = unescapeCqText(text.slice(lastIndex, match.index));
+            if (before) segments.push({ type: 'text', data: { text: before } });
+        }
+        const type = match[1];
+        const paramsStr = match[2];
+        const data: Record<string, any> = {};
+        if (paramsStr) {
+            const parts = paramsStr.slice(1).split(',');
+            for (const part of parts) {
+                const eqIdx = part.indexOf('=');
+                if (eqIdx !== -1) {
+                    const k = part.slice(0, eqIdx).trim();
+                    const v = unescapeCqValue(part.slice(eqIdx + 1));
+                    data[k] = v;
+                }
+            }
+        }
+        segments.push({ type, data: sanitizeSegmentData(data) });
+        lastIndex = cqPattern.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+        const rest = unescapeCqText(text.slice(lastIndex));
+        if (rest) segments.push({ type: 'text', data: { text: rest } });
+    }
+
+    return segments.length > 0 ? segments : [{ type: 'text', data: { text } }];
+}
+
+function unescapeCqText(text: string): string {
+    return text
+        .replace(/&#91;/g, '[')
+        .replace(/&#93;/g, ']')
+        .replace(/&amp;/g, '&');
+}
+
+function unescapeCqValue(val: string): string {
+    return val
+        .replace(/&#44;/g, ',')
+        .replace(/&#91;/g, '[')
+        .replace(/&#93;/g, ']')
+        .replace(/&amp;/g, '&');
+}
+
 export function normalizeSegments(message: unknown, rawMessage: unknown): MessageSegment[] {
     if (Array.isArray(message)) {
         return message.filter((segment) => segment && typeof segment.type === 'string').map((segment) => ({
             type: String(segment.type),
-            data: typeof segment.data === 'object' && segment.data !== null ? segment.data : {},
+            data: sanitizeSegmentData(typeof segment.data === 'object' && segment.data !== null ? segment.data : {}),
         }));
     }
     if (message && typeof message === 'object' && 'type' in message) {
         const segment = message as MessageSegment;
-        return [{ type: segment.type, data: segment.data ?? {} }];
+        return [{ type: segment.type, data: sanitizeSegmentData(segment.data ?? {}) }];
     }
     const text = typeof message === 'string' ? message : typeof rawMessage === 'string' ? rawMessage : '';
-    return text ? [{ type: 'text', data: { text } }] : [];
+    if (!text) return [];
+    if (text.includes('[CQ:')) {
+        return parseCqCode(text);
+    }
+    return [{ type: 'text', data: { text } }];
 }
 
 export const textSegment = (text: string): MessageSegment => ({ type: 'text', data: { text } });
 export const atSegment = (qq: string): MessageSegment => ({ type: 'at', data: { qq } });
-export const imageSegment = (file: string): MessageSegment => ({ type: 'image', data: { file } });
+export const imageSegment = (file: string, subType = 0, summary?: string): MessageSegment => ({
+    type: 'image',
+    data: {
+        file,
+        ...(subType ? { sub_type: subType } : {}),
+        ...(summary ? { summary } : {}),
+    },
+});
+export const stickerSegment = (file: string, summary = '[动画表情]'): MessageSegment => ({
+    type: 'image',
+    data: { file, sub_type: 7, summary },
+});
 export const replySegment = (id: string): MessageSegment => ({ type: 'reply', data: { id } });

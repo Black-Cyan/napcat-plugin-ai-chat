@@ -8,9 +8,15 @@ export const summaryResultSchema = z.object({ summary: z.string().min(1).max(120
 export const memoryResultSchema = z.object({
     memories: z.array(z.object({
         participant: z.string().min(1),
-        content: z.string().min(1).max(1000),
-        importance: z.number().int().min(1).max(5).default(3),
-        confidence: z.number().int().min(0).max(100).default(70),
+        content: z.string().min(1).max(2000),
+        importance: z.number().transform((val) => {
+            if (val <= 1) return Math.max(1, Math.min(5, Math.round(val * 5)));
+            return Math.max(1, Math.min(5, Math.round(val)));
+        }).default(3),
+        confidence: z.number().transform((val) => {
+            if (val <= 1) return Math.max(0, Math.min(100, Math.round(val * 100)));
+            return Math.max(0, Math.min(100, Math.round(val)));
+        }).default(70),
         supersedes: z.string().optional(),
     })).max(20),
 });
@@ -18,7 +24,7 @@ export const visionResultSchema = z.object({
     summary: z.string().min(1).max(2000),
     tags: z.array(z.string().max(40)).max(20),
     safe: z.boolean(),
-    confidence: z.number().min(0).max(1),
+    confidence: z.number().transform((val) => val > 1 ? Math.min(1, val / 100) : Math.max(0, val)).default(0.8),
     collect: z.boolean(),
 });
 
