@@ -45,6 +45,7 @@ export const sessionOverrideSchema = z.object({
         autoSend: z.boolean(),
         maxImageBytes: z.number().int().min(1024),
         cacheLimitMb: z.number().int().min(1),
+        rejectionCooldownDays: z.number().min(0).max(365),
     }).partial().optional(),
 });
 
@@ -76,6 +77,7 @@ export const pluginConfigSchema = z.object({
         autoSend: z.boolean(),
         maxImageBytes: z.number().int().min(1024),
         cacheLimitMb: z.number().int().min(1),
+        rejectionCooldownDays: z.number().min(0).max(365),
     }),
     stats: z.object({
         processed: z.number().int().nonnegative(),
@@ -123,6 +125,7 @@ export function createDefaultConfig(): PluginConfig {
             autoSend: true,
             maxImageBytes: 10 * 1024 * 1024,
             cacheLimitMb: 512,
+            rejectionCooldownDays: 7,
         },
         stats: { processed: 0, replies: 0, startedAt: Date.now() },
     };

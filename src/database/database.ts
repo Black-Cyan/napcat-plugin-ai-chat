@@ -44,7 +44,18 @@ export class Database {
         if (version < 2) await this.migrateV2();
         if (version < 3) await this.migrateV3(version);
         if (version < 4) await this.migrateV4();
-        await this.setMetadata('schema_version', '4');
+        if (version < 5) await this.migrateV5();
+        await this.setMetadata('schema_version', '5');
+    }
+
+    private async migrateV5(): Promise<void> {
+        // Negative cache for sticker evaluations: rejected or unsafe images are not re-sent to the vision model.
+        await this.db.schema.createTable('sticker_decisions').ifNotExists()
+            .addColumn('fingerprint', 'varchar(128)', (c) => c.primaryKey())
+            .addColumn('decision', 'varchar(16)', (c) => c.notNull())
+            .addColumn('summary', 'text', (c) => c.notNull().defaultTo(''))
+            .addColumn('evaluated_at', 'bigint', (c) => c.notNull())
+            .execute();
     }
 
     private async migrateV4(): Promise<void> {

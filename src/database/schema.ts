@@ -66,6 +66,13 @@ export interface UserProfileTable {
     updated_at: number;
 }
 
+export interface StickerDecisionTable {
+    fingerprint: string;
+    decision: 'collect' | 'reject' | 'unsafe';
+    summary: string;
+    evaluated_at: number;
+}
+
 export interface MemoryTable {
     id: string;
     qq: string;
@@ -164,6 +171,7 @@ export interface DatabaseSchema {
     access_list_members: AccessListMemberTable;
     stickers: StickerTable;
     sticker_sightings: StickerSightingTable;
+    sticker_decisions: StickerDecisionTable;
     tool_executions: ToolExecutionTable;
     app_metadata: MetadataTable;
 }

@@ -36,7 +36,7 @@ export class ToolBroker {
             },
             {
                 name: 'collect_sticker',
-                description: '理解并收藏当前批次某条消息中的图片或商城表情。',
+                description: '把当前批次某条消息中的图片或商城表情交给视觉模型理解，由它判断是否值得收藏并生成摘要与标签；判定为不值得收藏时会返回不收藏，仅在你认为值得收藏时调用。',
                 parameters: objectSchema({ message_id: { type: 'string' } }, ['message_id']),
             },
         ];

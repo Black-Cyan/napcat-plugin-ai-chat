@@ -22,6 +22,8 @@ import type {
     SenderKind,
     SessionOverride,
     Sticker,
+    StickerDecision,
+    StickerDecisionRecord,
     UserMemory,
     UserProfile,
 } from '../types';
@@ -746,6 +748,22 @@ export class Store {
     async countSightings(fingerprint: string): Promise<number> {
         const row = await this.db.selectFrom('sticker_sightings').select((eb) => eb.fn.countAll().as('count')).where('fingerprint', '=', fingerprint).executeTakeFirst();
         return Number((row as { count?: string | number } | undefined)?.count ?? 0);
+    }
+
+    async getStickerDecision(fingerprint: string): Promise<StickerDecisionRecord | null> {
+        const row = await this.db.selectFrom('sticker_decisions').selectAll().where('fingerprint', '=', fingerprint).executeTakeFirst();
+        return row ? {
+            fingerprint: row.fingerprint, decision: row.decision as StickerDecision,
+            summary: row.summary, evaluatedAt: Number(row.evaluated_at),
+        } : null;
+    }
+
+    async recordStickerDecision(fingerprint: string, decision: StickerDecision, summary: string): Promise<void> {
+        await this.db.insertInto('sticker_decisions').values({
+            fingerprint, decision, summary: summary.slice(0, 2000), evaluated_at: Date.now(),
+        }).onConflict((conflict) => conflict.column('fingerprint').doUpdateSet({
+            decision, summary: summary.slice(0, 2000), evaluated_at: Date.now(),
+        })).execute();
     }
 
     async updateSticker(id: string, patch: { enabled?: boolean; summary?: string }): Promise<void> {

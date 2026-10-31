@@ -43,6 +43,9 @@ export default function BehaviorPage() {
             <div className="form-grid compact-top">
                 <Field label="单张图片字节上限"><NumberInput value={config.stickers.maxImageBytes} onChange={(e) => stickers({ maxImageBytes: Number(e.target.value) })} /></Field>
                 <Field label="媒体缓存（MB）"><NumberInput value={config.stickers.cacheLimitMb} onChange={(e) => stickers({ cacheLimitMb: Number(e.target.value) })} /></Field>
+                <Field label="不收藏冷却（天）" hint="判定为不值得收藏的图片在冷却期内不再送模型评估；0 表示每次都重新评估，不安全内容永久跳过。">
+                    <NumberInput min="0" max="365" value={config.stickers.rejectionCooldownDays} onChange={(e) => stickers({ rejectionCooldownDays: Number(e.target.value) })} />
+                </Field>
             </div>
         </Panel>
         <Panel title="所有者与运行" description="所有者指令仅在私聊中由确定性解析器处理。">

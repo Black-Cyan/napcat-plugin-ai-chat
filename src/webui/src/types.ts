@@ -72,7 +72,7 @@ export interface BehaviorConfig {
     maxConcurrentTasks: number; recentMessageCount: number; maxInputTokens: number; inputBudgetRatio: number
     compressionTriggerRatio: number; maxContextRetries: number
 }
-export interface StickerConfig { enabled: boolean; autoCollect: boolean; autoSend: boolean; maxImageBytes: number; cacheLimitMb: number }
+export interface StickerConfig { enabled: boolean; autoCollect: boolean; autoSend: boolean; maxImageBytes: number; cacheLimitMb: number; rejectionCooldownDays: number }
 export interface SessionOverride {
     enabled?: boolean; promptProfileId?: string | null; providerProfileId?: string | null
     behavior?: Partial<BehaviorConfig>; vision?: boolean; stickers?: Partial<StickerConfig>

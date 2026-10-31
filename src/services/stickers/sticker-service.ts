@@ -5,13 +5,30 @@ import { createHash } from 'node:crypto';
 import Jimp from 'jimp';
 import { Store } from '../../database/store';
 import { pluginState } from '../../core/state';
-import type { ChatMessage, Conversation, MessageSegment, Sticker } from '../../types';
-import type { ProviderContentPart } from '../../providers/types';
+import type { ChatMessage, Conversation, MessageSegment, ProviderProfile, Sticker } from '../../types';
+import type { ProviderContentPart, ProviderMessage } from '../../providers/types';
 import { addCustomFace, getImage, sendMessage } from '../../napcat/actions';
 import { imageSegment, stickerSegment } from '../../napcat/message-segments';
 import { AITasks } from '../ai/tasks';
 import { ALLOWED_MIME, detectMimeFromBuffer, downloadImage, type DownloadedImage } from './downloader';
 import { effectiveStickers } from '../chat/config';
+import { runtimeLogs } from '../../core/log-buffer';
+
+interface PreparedImage {
+    image: DownloadedImage;
+    sha256: string;
+    phash: string | null;
+    napcatKey: string | null;
+    fingerprint: string;
+}
+
+interface StickerUnderstanding {
+    summary: string;
+    tags: string[];
+    safe: boolean;
+    confidence: number;
+    collect: boolean;
+}
 
 export class StickerService {
     constructor(private readonly store: Store, private readonly tasks: AITasks) {}
@@ -32,15 +49,110 @@ export class StickerService {
         return parts;
     }
 
+    /**
+     * 主聊天模型没有视觉能力时，改用配置的视觉任务模型把图片转述成文字。
+     * 没有可用的视觉模型时返回空数组，保持原有的"[图片]"占位行为。
+     */
+    async captionParts(messages: ChatMessage[], maxBytes: number, conversation: Conversation): Promise<ProviderContentPart[]> {
+        const profile = this.tasks.visionProfile(conversation);
+        if (!profile) return [];
+        const images: ProviderMessage[] = [];
+        const slots: number[] = [];
+        const parts: ProviderContentPart[] = [];
+        for (const message of messages) {
+            for (const segment of message.content) {
+                if (!isImage(segment)) continue;
+                try {
+                    const image = await this.download(segment, maxBytes);
+                    images.push({ role: 'user', content: [{ type: 'image', mime: image.mime, data: image.buffer.toString('base64') }] });
+                    slots.push(parts.length);
+                    parts.push({ type: 'text', text: '' });
+                } catch {
+                    parts.push({ type: 'text', text: '[一张无法下载的图片]' });
+                }
+            }
+        }
+        for (let start = 0; start < images.length; start += 4) {
+            const chunk = images.slice(start, start + 4);
+            try {
+                const descriptions = await this.tasks.describeImages(chunk, conversation, profile);
+                for (const item of descriptions) {
+                    const slot = slots[start + item.index];
+                    if (slot !== undefined) parts[slot] = { type: 'text', text: `[图片内容：${item.description}]` };
+                }
+            } catch {
+                // 转述失败的图片降级为占位符，不阻断回复。
+            }
+        }
+        return parts.map((part) => part.type === 'text' && part.text === ''
+            ? { type: 'text' as const, text: '[图片内容暂时无法转述]' }
+            : part);
+    }
+
+    /**
+     * 图片理解以配置为准：配置了独立的视觉任务模型就由它转述，主模型不再接收 base64 图片；
+     * 视觉任务模型与主聊天模型是同一个配置（含继承主模型）时才直接内联，避免重复调用。
+     */
+    async imageParts(
+        messages: ChatMessage[],
+        maxBytes: number,
+        conversation: Conversation,
+        chatProfile: ProviderProfile,
+    ): Promise<ProviderContentPart[]> {
+        const vision = this.tasks.visionProfile(conversation);
+        const inherited = !vision || (vision.id === chatProfile.id && vision.model === chatProfile.model);
+        if (chatProfile.vision && inherited) return this.visionParts(messages, maxBytes);
+        if (vision) {
+            if (pluginState.config.debug) {
+                runtimeLogs.add('debug', `图片理解使用视觉任务模型 [${vision.name}]（主模型 ${chatProfile.name}）`, 'model', {
+                    visionProviderId: vision.id, visionModel: vision.model, chatProviderId: chatProfile.id, chatModel: chatProfile.model,
+                });
+            }
+            return this.captionParts(messages, maxBytes, conversation);
+        }
+        return chatProfile.vision ? this.visionParts(messages, maxBytes) : [];
+    }
+
     async processBatch(conversation: Conversation, messages: ChatMessage[]): Promise<void> {
         const config = effectiveStickers(conversation);
         if (!config.enabled || !config.autoCollect) return;
+        const pending: Array<{ prepared: PreparedImage; message: ChatMessage; segment: MessageSegment }> = [];
         for (const message of messages) {
             if (message.senderKind === 'self') continue;
             for (const segment of message.content) {
                 if (!isImage(segment)) continue;
-                try { await this.observe(conversation, message, segment, false); } catch { /* uncertain images are skipped */ }
+                try {
+                    const prepared = await this.prepare(segment, config.maxImageBytes);
+                    const existing = await this.store.findSticker({ napcatKey: prepared.napcatKey, sha256: prepared.sha256, phash: prepared.phash });
+                    await this.store.recordSighting({
+                        stickerId: existing?.id ?? null, conversationId: conversation.id,
+                        messageId: message.id, fingerprint: prepared.fingerprint,
+                    });
+                    if (existing) continue;
+                    if (await this.isCachedNegative(prepared.fingerprint, config.rejectionCooldownDays)) continue;
+                    pending.push({ prepared, message, segment });
+                } catch { /* 无法下载或解析的图片不参与收藏评估 */ }
             }
+        }
+        // 同一批次的新图合并评估，单次请求最多 4 张，避免每张图一次视觉调用。
+        for (let start = 0; start < pending.length; start += 4) {
+            const chunk = pending.slice(start, start + 4);
+            try {
+                const items = await Promise.all(chunk.map(async ({ prepared }) => ({
+                    role: 'user' as const,
+                    content: [
+                        { type: 'text' as const, text: `该图片此前在当前记录中出现 ${await this.store.countSightings(prepared.fingerprint)} 次，频率只是参考指标。` },
+                        { type: 'image' as const, mime: prepared.image.mime, data: prepared.image.buffer.toString('base64') },
+                    ],
+                })));
+                const evaluations = await this.tasks.understandStickerBatch(items, conversation);
+                for (let index = 0; index < chunk.length; index += 1) {
+                    const evaluation = evaluations.find((item) => item.index === index);
+                    if (!evaluation) continue;
+                    const { prepared, segment } = chunk[index];
+                    await this.finalize(conversation, segment, prepared, evaluation, config, false);
+                }
+            } catch { /* 本组评估失败时跳过，不影响后续批次 */ }
         }
     }
 
@@ -53,26 +165,60 @@ export class StickerService {
     private async observe(conversation: Conversation, message: ChatMessage, segment: MessageSegment, force: boolean): Promise<Sticker | null> {
         const config = effectiveStickers(conversation);
         if (!config.enabled) throw new Error('表情包功能已停用');
-        const image = await this.download(segment, config.maxImageBytes);
+        const prepared = await this.prepare(segment, config.maxImageBytes);
+        const existing = await this.store.findSticker({ napcatKey: prepared.napcatKey, sha256: prepared.sha256, phash: prepared.phash });
+        await this.store.recordSighting({
+            stickerId: existing?.id ?? null, conversationId: conversation.id,
+            messageId: message.id, fingerprint: prepared.fingerprint,
+        });
+        if (existing) return existing;
+        if (!force && await this.isCachedNegative(prepared.fingerprint, config.rejectionCooldownDays)) return null;
+        const understanding = await this.tasks.understandSticker({
+            role: 'user',
+            content: [
+                { type: 'text', text: `请理解这张表情图片并给出是否值得收藏的判断。该表情此前在当前记录中出现 ${await this.store.countSightings(prepared.fingerprint)} 次，频率只是参考指标。` },
+                { type: 'image', mime: prepared.image.mime, data: prepared.image.buffer.toString('base64') },
+            ],
+        }, conversation);
+        return this.finalize(conversation, segment, prepared, understanding, config, force);
+    }
+
+    private async prepare(segment: MessageSegment, maxBytes: number): Promise<PreparedImage> {
+        const image = await this.download(segment, maxBytes);
         const sha256 = createHash('sha256').update(image.buffer).digest('hex');
         const phash = await perceptualHash(image.buffer).catch(() => null);
         const napcatKey = segment.type === 'mface'
             ? `${String(segment.data.emoji_package_id ?? '')}:${String(segment.data.emoji_id ?? '')}`
             : null;
-        const existing = await this.store.findSticker({ napcatKey, sha256, phash });
-        await this.store.recordSighting({
-            stickerId: existing?.id ?? null, conversationId: conversation.id,
-            messageId: message.id, fingerprint: napcatKey || sha256,
-        });
-        if (existing) return existing;
-        const understanding = await this.tasks.understandSticker({
-            role: 'user',
-            content: [
-                { type: 'text', text: `请理解这张表情图片并给出是否值得收藏的判断。该表情此前在当前记录中出现 ${await this.store.countSightings(napcatKey || sha256)} 次，频率只是参考指标。` },
-                { type: 'image', mime: image.mime, data: image.buffer.toString('base64') },
-            ],
-        }, conversation);
-        if (!understanding.safe || understanding.confidence < 0.7 || (!force && !understanding.collect)) return null;
+        return { image, sha256, phash, napcatKey, fingerprint: napcatKey || sha256 };
+    }
+
+    private async isCachedNegative(fingerprint: string, cooldownDays: number): Promise<boolean> {
+        const cached = await this.store.getStickerDecision(fingerprint);
+        if (!cached || cached.decision === 'collect') return false;
+        if (cached.decision === 'unsafe') return true;
+        const cooldownMs = Math.max(0, cooldownDays) * 86400000;
+        return cooldownMs > 0 && Date.now() - cached.evaluatedAt < cooldownMs;
+    }
+
+    private async finalize(
+        conversation: Conversation,
+        segment: MessageSegment,
+        prepared: PreparedImage,
+        understanding: StickerUnderstanding,
+        config: ReturnType<typeof effectiveStickers>,
+        force: boolean,
+    ): Promise<Sticker | null> {
+        const { image, sha256, phash, napcatKey, fingerprint } = prepared;
+        if (!understanding.safe) {
+            await this.store.recordStickerDecision(fingerprint, 'unsafe', understanding.summary);
+            return null;
+        }
+        if (understanding.confidence < 0.7 || (!force && !understanding.collect)) {
+            await this.store.recordStickerDecision(fingerprint, 'reject', understanding.summary);
+            return null;
+        }
+        await this.store.recordStickerDecision(fingerprint, 'collect', understanding.summary);
         const extension = extensionFor(image.mime);
         const directory = pluginState.getDataFilePath('media');
         const filename = path.join(directory, `${sha256}${extension}`);
@@ -134,6 +280,7 @@ export class StickerService {
     }
 
     private async download(segment: MessageSegment, maxBytes: number): Promise<DownloadedImage> {
+
         const candidates = [segment.data.url, segment.data.file, segment.data.src]
             .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
 

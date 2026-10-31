@@ -136,12 +136,14 @@ describe('SQLite persistence', () => {
         await sql`alter table user_profiles drop column address_manual`.execute(database!.db);
         await database!.setMetadata('schema_version', '3');
         await database!.migrate();
-        expect(await database!.getMetadata('schema_version')).toBe('4');
+        expect(await database!.getMetadata('schema_version')).toBe('5');
         const profiles = await store.getProfiles(['10001']);
         expect(profiles[0].displayName).toBe('Alice');
         expect(profiles[0].address).toBe('');
         await store.setProfileAddress('10001', 'Alice同学', true);
         expect((await store.getProfiles(['10001']))[0].address).toBe('Alice同学');
+        await store.recordStickerDecision('fp1', 'reject', '普通截图');
+        expect((await store.getStickerDecision('fp1'))?.decision).toBe('reject');
     });
 
     it('keeps immutable raw messages when saving a summary', async () => {

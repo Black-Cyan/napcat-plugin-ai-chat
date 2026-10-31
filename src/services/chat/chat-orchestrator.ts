@@ -66,8 +66,9 @@ export class ChatOrchestrator {
             }
             const profile = this.providers.profile(effectiveProviderId(conversation));
             const aliases = new ParticipantAliases(messages);
-            const images = profile.vision && effectiveVision(conversation)
-                ? await this.stickers.visionParts(messages, pluginState.config.stickers.maxImageBytes)
+            // 图片理解路径由 StickerService.imageParts 按视觉任务配置决定。
+            const images = effectiveVision(conversation)
+                ? await this.stickers.imageParts(messages, pluginState.config.stickers.maxImageBytes, conversation, profile)
                 : [];
             let reduction = 0;
             let sideEffects = false;

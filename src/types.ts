@@ -124,6 +124,16 @@ export interface StickerConfig {
     autoSend: boolean;
     maxImageBytes: number;
     cacheLimitMb: number;
+    rejectionCooldownDays: number;
+}
+
+export type StickerDecision = 'collect' | 'reject' | 'unsafe';
+
+export interface StickerDecisionRecord {
+    fingerprint: string;
+    decision: StickerDecision;
+    summary: string;
+    evaluatedAt: number;
 }
 
 export interface SessionOverride {
