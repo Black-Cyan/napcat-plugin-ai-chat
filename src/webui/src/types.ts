@@ -83,7 +83,7 @@ export interface SessionOverride {
     behavior?: Partial<BehaviorConfig>; vision?: boolean; stickers?: Partial<StickerConfig>; speech?: Partial<SpeechConfig>
 }
 export interface PluginConfig {
-    enabled: boolean; debug: boolean; commandPrefix: string; owners: string[]
+    enabled: boolean; debug: boolean; timezone: string; commandPrefix: string; owners: string[]
     defaultProviderId: string | null
     taskProviders: { summary: string | null; memory: string | null; vision: string | null; tts: string | null; speech: string | null }
     providers: ProviderProfile[]; database: DatabaseConfig; behavior: BehaviorConfig

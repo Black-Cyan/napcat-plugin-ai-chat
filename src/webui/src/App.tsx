@@ -15,6 +15,7 @@ import DataPage from './pages/DataPage'
 import LogsPage from './pages/LogsPage'
 import { useStatus } from './hooks/useStatus'
 import { useTheme } from './hooks/useTheme'
+import { ConfirmProvider } from './components/Overlay'
 
 export type PageId = 'status' | 'behavior' | 'providers' | 'prompts' | 'conversations' | 'memories' | 'stickers' | 'blacklist' | 'database' | 'data' | 'logs'
 
@@ -57,7 +58,7 @@ export default function App() {
             case 'logs': return <LogsPage />
         }
     }
-    return <div className="app-shell">
+    return <ConfirmProvider><div className="app-shell">
         <ToastContainer />
         <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
         <div className="main-shell">
@@ -66,5 +67,5 @@ export default function App() {
                 <div key={currentPage} className="page-enter">{renderPage()}</div>
             </main>
         </div>
-    </div>
+    </div></ConfirmProvider>
 }

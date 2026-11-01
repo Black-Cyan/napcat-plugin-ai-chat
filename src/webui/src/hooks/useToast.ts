@@ -6,6 +6,7 @@ export interface Toast {
     id: number
     message: string
     type: ToastType
+    duration: number
     hiding?: boolean
 }
 
@@ -14,7 +15,7 @@ let toastId = 0
 const listeners = new Set<() => void>()
 
 function emitChange() {
-    listeners.forEach(fn => fn())
+    listeners.forEach((fn) => fn())
 }
 
 function subscribe(listener: () => void) {
@@ -26,18 +27,21 @@ function getSnapshot() {
     return toasts
 }
 
-export function addToast(message: string, type: ToastType = 'info') {
+export function addToast(message: string, type: ToastType = 'info', duration?: number) {
     const id = ++toastId
-    toasts = [...toasts, { id, message, type }]
+    const ttl = duration ?? (type === 'error' ? 6000 : 4000)
+    toasts = [...toasts, { id, message, type, duration: ttl }]
+    emitChange()
+    return id
+}
+
+export function dismissToast(id: number) {
+    toasts = toasts.map((toast) => toast.id === id ? { ...toast, hiding: true } : toast)
     emitChange()
     setTimeout(() => {
-        toasts = toasts.map(t => t.id === id ? { ...t, hiding: true } : t)
+        toasts = toasts.filter((toast) => toast.id !== id)
         emitChange()
-        setTimeout(() => {
-            toasts = toasts.filter(t => t.id !== id)
-            emitChange()
-        }, 350)
-    }, 3000)
+    }, 220)
 }
 
 export function useToasts() {

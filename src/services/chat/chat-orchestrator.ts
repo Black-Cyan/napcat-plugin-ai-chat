@@ -73,7 +73,7 @@ export class ChatOrchestrator {
             // 图片理解路径由 StickerService.imageParts 按视觉任务配置决定。
             const images = effectiveVision(conversation)
                 ? await this.stickers.imageParts(messages, pluginState.config.stickers.maxImageBytes, conversation, profile)
-                : [];
+                : { parts: [], annotations: [] };
             let reduction = 0;
             let sideEffects = false;
             let composed = await this.context.compose(conversation, messages, aliases, profile, images, reduction);

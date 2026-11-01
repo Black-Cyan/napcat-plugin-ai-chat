@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useConfig } from '../hooks/useConfig'
 import { postJson } from '../utils/api'
-import { Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
+import { Notice, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
 
 export default function DatabasePage() {
     const { config, setConfig, saving, error, notice, save } = useConfig()
@@ -17,7 +17,7 @@ export default function DatabasePage() {
         finally { setTesting(false) }
     }
     return <div className="page-stack narrow-page">
-        <ErrorNotice message={error} />{notice && <div className="notice">{notice}</div>}{testResult && <div className="notice">{testResult}</div>}
+        <ErrorNotice message={error} /><Notice message={notice} /><Notice message={testResult} />
         <Panel title="业务数据库" description="同一时间只使用一个后端，不会自动切换或隐式同步数据。">
             <Field label="数据库协议"><Select value={database.driver} onChange={(e) => patch({ driver: e.target.value as typeof database.driver })}><option value="sqlite">SQLite（本地默认）</option><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option></Select></Field>
             {database.driver === 'sqlite' ? <Field label="SQLite 文件名" hint="相对路径保存在插件数据目录中。" wide><Input value={database.sqliteFile} onChange={(e) => patch({ sqliteFile: e.target.value })} /></Field> : <>

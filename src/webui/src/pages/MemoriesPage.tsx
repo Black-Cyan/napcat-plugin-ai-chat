@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { useResource } from '../hooks/useResource'
 import { postJson } from '../utils/api'
 import type { MemoryUserSummary, UserMemory } from '../types'
-import { Badge, Button, Empty, ErrorNotice, Input, Loading, Panel, Select, Textarea } from '../components/ui'
-import { IconArrowLeft, IconChevronRight } from '../components/icons'
+import { Notice, Badge, Button, Empty, ErrorNotice, Input, Loading, Panel, Select, Textarea } from '../components/ui'
+import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
 
 type ScopeFilter = 'all' | 'group' | 'private' | 'inactive'
 
@@ -29,11 +29,10 @@ export default function MemoriesPage() {
 
     return <div className="page-stack">
         <ErrorNotice message={error} />
-        {selected ? (
-            <UserMemories key={selected.qq} user={selected} onBack={async () => { setSelected(null); await refresh() }} />
-        ) : (
+        {selected && <UserMemories key={selected.qq} user={selected} onBack={async () => { setSelected(null); await refresh() }} />}
+        {true && (
             <>
-                <Panel title="用户记忆" description="私聊记忆只能用于私聊；群聊记忆可跨群及用于私聊。按用户查看并审核 AI 提炼的事实与偏好。">
+                <Panel title="用户记忆" description="私聊记忆仅用于私聊，群聊记忆可跨群与私聊使用。">
                     <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索昵称、称呼、QQ 号或记忆内容" />
                     {data && data.length > 0 && <p className="memory-summary">{data.length} 位用户 · 共 {totals} 条记忆</p>}
                 </Panel>
@@ -46,7 +45,7 @@ export default function MemoriesPage() {
                         title={search ? '没有匹配的用户' : '暂无用户记忆'}
                         description={search
                             ? '换一个昵称、称呼、QQ 号或记忆关键词试试。'
-                            : '当用户在聊天中提及个人事实或偏好（如兴趣爱好、常住地、职业习惯等）时，AI 会在后台自动提炼并按用户归类到这里。'}
+                            : '聊天中出现的稳定事实与偏好会自动记录在这里。'}
                     />
                 )}
             </>
@@ -69,7 +68,7 @@ function UserCard({ user, onOpen }: { user: MemoryUserSummary; onOpen: () => voi
                 {user.privateCount > 0 && <Badge tone="warn">私聊 {user.privateCount}</Badge>}
             </span>
         </span>
-        <IconChevronRight size={18} className="memory-user-chevron" />
+        <PopoverMenu actions={[{ label: '查看记忆', onSelect: onOpen }, { label: '编辑称呼', onSelect: onOpen }]} />
     </button>
 }
 
@@ -107,12 +106,17 @@ function UserMemories({ user, onBack }: { user: MemoryUserSummary; onBack: () =>
         finally { setSavingAddress(false) }
     }
 
-    return <>
+    return <SidePanel
+        title={user.displayName || `QQ ${user.qq}`}
+        subtitle={`QQ ${user.qq} · 共 ${counts.all} 条记忆`}
+        onClose={() => void onBack()}
+        footer={<>
+            <span className="memory-address-hint">私聊记忆只在私聊可见</span>
+            <Button variant="primary" onClick={() => void onBack()}>完成</Button>
+        </>}
+    >
         <ErrorNotice message={error} />
-        {notice && <div className="notice">{notice}</div>}
-        <Button variant="quiet" className="memory-back" onClick={() => void onBack()}>
-            <IconArrowLeft size={16} />返回用户列表
-        </Button>
+        <Notice message={notice} />
         <Panel>
             <div className="memory-profile">
                 <UserAvatar qq={user.qq} name={user.displayName} size={56} />
@@ -163,10 +167,11 @@ function UserMemories({ user, onBack }: { user: MemoryUserSummary; onBack: () =>
                 />
             )}
         </Panel>
-    </>
+    </SidePanel>
 }
 
 function MemoryRow({ memory, onChange, onNotice }: { memory: UserMemory; onChange: () => Promise<void>; onNotice: (text: string) => void }) {
+    const ask = useConfirm()
     const [editing, setEditing] = useState(false)
     const [content, setContent] = useState(memory.content)
     const [scope, setScope] = useState(memory.scope)
@@ -182,7 +187,7 @@ function MemoryRow({ memory, onChange, onNotice }: { memory: UserMemory; onChang
     }
     const save = () => run(async () => {
         if (!content.trim()) throw new Error('记忆内容不能为空')
-        if (scope === 'group' && memory.scope === 'private' && !confirm('这会把原本仅限私聊的记忆开放到群聊，确定继续？')) return
+        if (scope === 'group' && memory.scope === 'private' && !await ask({ title: '把私聊记忆开放到群聊？', description: '这条记忆之后可能出现在群聊上下文中。' })) return
         await postJson(`/memories/${memory.id}`, { content: content.trim(), scope })
         setEditing(false)
         onNotice('记忆已保存')
@@ -191,8 +196,8 @@ function MemoryRow({ memory, onChange, onNotice }: { memory: UserMemory; onChang
         await postJson(`/memories/${memory.id}`, { valid: !memory.valid })
         onNotice(memory.valid ? '已停用该记忆，模型不会再引用' : '已重新启用该记忆')
     })
-    const remove = () => {
-        if (!confirm(`永久删除这条记忆？\n\n${memory.content}`)) return
+    const remove = async () => {
+        if (!await ask({ title: '永久删除这条记忆？', description: memory.content })) return
         void run(async () => { await postJson(`/memories/${memory.id}/delete`, {}); onNotice('记忆已删除') })
     }
 
@@ -223,7 +228,7 @@ function MemoryRow({ memory, onChange, onNotice }: { memory: UserMemory; onChang
                 <div className="memory-actions">
                     <Button variant="quiet" disabled={busy} onClick={() => setEditing(true)}>编辑</Button>
                     <Button variant="quiet" disabled={busy} onClick={() => void toggle()}>{memory.valid ? '停用' : '启用'}</Button>
-                    <Button variant="quiet" className="memory-delete" disabled={busy} onClick={remove}>删除</Button>
+                    <Button variant="quiet" className="memory-delete" disabled={busy} onClick={() => void remove()}>删除</Button>
                 </div>
             </>
         )}

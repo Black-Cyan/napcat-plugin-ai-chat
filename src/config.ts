@@ -60,6 +60,7 @@ export const sessionOverrideSchema = z.object({
 
 export const pluginConfigSchema = z.object({
     enabled: z.boolean(),
+    timezone: z.string().max(64),
     debug: z.boolean(),
     commandPrefix: z.string().min(1).max(8),
     owners: z.array(z.string().regex(/^\d+$/)),
@@ -109,6 +110,7 @@ export const pluginConfigSchema = z.object({
 export function createDefaultConfig(): PluginConfig {
     return {
         enabled: true,
+        timezone: 'Asia/Shanghai',
         debug: false,
         commandPrefix: '#',
         owners: [],

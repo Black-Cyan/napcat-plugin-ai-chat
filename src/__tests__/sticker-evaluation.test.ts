@@ -134,13 +134,13 @@ describe('image captioning for non-vision chat models', () => {
     it('uses the configured vision task model to describe images as text', async () => {
         tasks.visionProfile.mockReturnValue({ id: 'vision-only', vision: true });
         tasks.describeImages.mockResolvedValue([{ index: 0, description: '一只举着牌子的猫' }]);
-        const parts = await service().captionParts([message(1, 1)], 1024 * 1024, conversation);
+        const { parts } = await service().captionParts([message(1, 1)], 1024 * 1024, conversation);
         expect(tasks.describeImages).toHaveBeenCalledTimes(1);
         expect(parts).toEqual([{ type: 'text', text: '[图片内容：一只举着牌子的猫]' }]);
     });
 
     it('returns no image parts when no vision-capable task model is configured', async () => {
-        const parts = await service().captionParts([message(1, 1)], 1024 * 1024, conversation);
+        const { parts } = await service().captionParts([message(1, 1)], 1024 * 1024, conversation);
         expect(parts).toEqual([]);
         expect(tasks.describeImages).not.toHaveBeenCalled();
     });
@@ -155,7 +155,7 @@ describe('vision configuration routing', () => {
 
     it('inlines images when the vision task inherits the same chat model', async () => {
         tasks.visionProfile.mockReturnValue({ id: 'main', model: 'main-model', vision: true });
-        const parts = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
+        const { parts } = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
         expect(parts[0].type).toBe('image');
         expect(tasks.describeImages).not.toHaveBeenCalled();
     });
@@ -163,7 +163,7 @@ describe('vision configuration routing', () => {
     it('uses the configured cheaper vision model even when the chat model supports vision', async () => {
         tasks.visionProfile.mockReturnValue({ id: 'cheap-vision', model: 'cheap', vision: true });
         tasks.describeImages.mockResolvedValue([{ index: 0, description: '一只猫' }]);
-        const parts = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
+        const { parts } = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
         expect(parts).toEqual([{ type: 'text', text: '[图片内容：一只猫]' }]);
         expect(tasks.describeImages).toHaveBeenCalledTimes(1);
     });
@@ -171,20 +171,20 @@ describe('vision configuration routing', () => {
     it('captions images when the chat model has no vision capability', async () => {
         tasks.visionProfile.mockReturnValue({ id: 'cheap-vision', model: 'cheap', vision: true });
         tasks.describeImages.mockResolvedValue([{ index: 0, description: '一张截图' }]);
-        const parts = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile({ vision: false }));
+        const { parts } = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile({ vision: false }));
         expect(parts[0].type).toBe('text');
         expect(tasks.describeImages).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to inline images when no separate vision model exists', async () => {
         tasks.visionProfile.mockReturnValue(null);
-        const parts = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
+        const { parts } = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile());
         expect(parts[0].type).toBe('image');
     });
 
     it('returns nothing when neither the chat model nor a vision task can see images', async () => {
         tasks.visionProfile.mockReturnValue(null);
-        const parts = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile({ vision: false }));
+        const { parts } = await service().imageParts([message(1, 1)], 1024 * 1024, conversation, chatProfile({ vision: false }));
         expect(parts).toEqual([]);
     });
 });

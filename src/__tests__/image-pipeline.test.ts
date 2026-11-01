@@ -85,7 +85,7 @@ describe('StickerService Multi-source Resolution', () => {
             role: 'user', content: [{ type: 'image', data: { file: dataUrl } }],
             batchId: null, napcatMessageId: null, rawEvent: null, occurredAt: Date.now(), receivedAt: Date.now(),
         };
-        const parts = await service.visionParts([message], 1024 * 1024);
+        const { parts } = await service.visionParts([message], 1024 * 1024);
         expect(parts).toHaveLength(1);
         expect(parts[0]).toEqual({
             type: 'image',
@@ -104,7 +104,7 @@ describe('StickerService Multi-source Resolution', () => {
             role: 'user', content: [{ type: 'image', data: { file: localFile } }],
             batchId: null, napcatMessageId: null, rawEvent: null, occurredAt: Date.now(), receivedAt: Date.now(),
         };
-        const parts = await service.visionParts([message], 1024 * 1024);
+        const { parts } = await service.visionParts([message], 1024 * 1024);
         expect(parts).toHaveLength(1);
         expect(parts[0]).toEqual({
             type: 'image',
@@ -150,7 +150,7 @@ describe('StickerService Multi-source Resolution', () => {
             batchId: null, napcatMessageId: null, rawEvent: null, occurredAt: Date.now(), receivedAt: Date.now(),
         };
 
-        const parts = await service.visionParts([message], 1024 * 1024);
+        const { parts } = await service.visionParts([message], 1024 * 1024);
         expect(mockCall).toHaveBeenCalledWith('get_image', { file: '594A8E2AF6A2E856E022E1DBBEF47515.jpg' }, 'test', {});
         expect(parts).toHaveLength(1);
         expect(parts[0]).toEqual({

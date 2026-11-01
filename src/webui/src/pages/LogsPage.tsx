@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
 import { useResource } from '../hooks/useResource'
+import { useConfirm } from '../components/Overlay'
 import { useConfig } from '../hooks/useConfig'
 import { postJson } from '../utils/api'
 import type { LogEntry } from '../types'
-import { Badge, Button, ErrorNotice, Input, Loading, Panel } from '../components/ui'
+import { Notice, Badge, Button, ErrorNotice, Input, Loading, Panel } from '../components/ui'
 import { IconClock, IconDownload, IconRefresh, IconSearch, IconTerminal } from '../components/icons'
 
 type LevelType = 'all' | 'debug' | 'info' | 'warn' | 'error'
 type CategoryType = 'all' | 'chat' | 'model' | 'tool' | 'access' | 'system'
 
 export default function LogsPage() {
+    const ask = useConfirm()
     const { data, loading, error, refresh } = useResource<LogEntry[]>('/logs')
     const { config, save } = useConfig()
     const [levelFilter, setLevelFilter] = useState<LevelType>('all')
@@ -23,7 +25,7 @@ export default function LogsPage() {
     const isDebugOn = config?.debug ?? false
 
     const clearLogs = async () => {
-        if (!confirm('清空当前内存中的所有运行日志？')) return
+        if (!await ask({ title: '清空运行日志？', description: '将清空当前进程内存中的全部日志条目。' })) return
         await postJson('/logs/clear', {})
         setNotice('日志已清空')
         await refresh()
@@ -111,12 +113,12 @@ export default function LogsPage() {
     return (
         <div className="page-stack">
             <ErrorNotice message={error} />
-            {notice && <div className="notice">{notice}</div>}
+            <Notice message={notice} />
 
             {/* Top Diagnostics Status Card */}
             <Panel
                 title="运行与诊断控制台"
-                description="集中监控机器人接收消息、大模型交互、工具调用及权限流转。敏感数据（API Key 与连接串）强制脱敏隐藏。"
+                description="密钥与连接串始终脱敏。"
                 actions={
                     <div className="button-row" style={{ margin: 0 }}>
                         <Button
@@ -179,11 +181,7 @@ export default function LogsPage() {
                                     <button
                                         key={lvl}
                                         type="button"
-                                        className={`px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors border ${
-                                            isActive
-                                                ? 'bg-accent text-white border-accent shadow-sm'
-                                                : 'bg-surface text-muted border-line hover:bg-surface-subtle hover:text-ink'
-                                        }`}
+                                        className={`log-filter px-3 py-1.5 text-xs ${isActive ? 'active' : ''}`}
                                         onClick={() => setLevelFilter(lvl)}
                                     >
                                         {lvl === 'all'
@@ -195,7 +193,7 @@ export default function LogsPage() {
                                             : lvl === 'warn'
                                             ? 'Warn'
                                             : 'Error'}{' '}
-                                        <span className={`ml-1 text-[11px] opacity-80 ${isActive ? 'text-white' : 'text-muted'}`}>
+                                        <span className="log-count ml-1 text-[11px]">
                                             ({count})
                                         </span>
                                     </button>
@@ -230,12 +228,8 @@ export default function LogsPage() {
                                 <button
                                     key={cat}
                                     type="button"
-                                    className={`px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
-                                        categoryFilter === cat
-                                            ? 'bg-surface-subtle text-accent font-semibold underline'
-                                            : 'text-muted hover:text-ink'
-                                    }`}
-                                    onClick={() => setCategoryFilter(cat)}
+                                    className={`log-filter px-2 py-0.5 text-[11px] font-mono ${categoryFilter === cat ? 'active' : ''}`}
+                                        onClick={() => setCategoryFilter(cat)}
                                 >
                                     {cat === 'all'
                                         ? '全部'
@@ -271,7 +265,7 @@ export default function LogsPage() {
             </Panel>
 
             {/* Log Stream Card */}
-            <Panel title="实时事件流" description="按时间倒序排列。点击带有详细参数的条目可直接查看与复制结构化数据。">
+            <Panel title="实时事件流" description="按时间倒序，点击条目查看结构化数据。">
                 {loading && !data ? (
                     <Loading label="正在拉取日志记录..." />
                 ) : (

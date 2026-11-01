@@ -125,7 +125,7 @@ export default function StatusPage({ status, onRefresh }: { status: PluginStatus
 
                 <Panel
                     title="运行时健康度"
-                    description="只展示非敏感系统状态，不包含聊天正文或密钥。"
+                    description="不含聊天正文与密钥。"
                     actions={
                         <Button onClick={onRefresh}>
                             <IconRefresh size={13} />

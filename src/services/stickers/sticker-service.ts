@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import Jimp from 'jimp';
 import { Store } from '../../database/store';
 import { pluginState } from '../../core/state';
-import type { ChatMessage, Conversation, MessageSegment, ProviderProfile, Sticker } from '../../types';
+import type { ChatMessage, ComposedImages, Conversation, ImageAnnotation, MessageSegment, ProviderProfile, Sticker } from '../../types';
 import type { ProviderContentPart, ProviderMessage } from '../../providers/types';
 import { addCustomFace, getImage, sendMessage } from '../../napcat/actions';
 import { imageSegment, stickerSegment } from '../../napcat/message-segments';
@@ -33,60 +33,102 @@ interface StickerUnderstanding {
 export class StickerService {
     constructor(private readonly store: Store, private readonly tasks: AITasks) {}
 
-    async visionParts(messages: ChatMessage[], maxBytes: number): Promise<ProviderContentPart[]> {
+    async visionParts(messages: ChatMessage[], maxBytes: number): Promise<ComposedImages> {
         const parts: ProviderContentPart[] = [];
+        const annotations: ImageAnnotation[] = [];
         for (const message of messages) {
-            for (const segment of message.content) {
+            for (const [segmentIndex, segment] of message.content.entries()) {
                 if (!isImage(segment)) continue;
+                const ref = `img${annotations.length + 1}`;
                 try {
                     const image = await this.download(segment, maxBytes);
+                    const known = await this.knownSummary(image.buffer);
                     parts.push({ type: 'image', mime: image.mime, data: image.buffer.toString('base64') });
+                    annotations.push({
+                        messageId: message.id, segmentIndex, seq: message.seq, ref,
+                        summary: known ?? String(segment.data.summary ?? '[图片]'), known: Boolean(known),
+                    });
                 } catch {
                     parts.push({ type: 'text', text: '[一张无法下载的图片]' });
+                    annotations.push({ messageId: message.id, segmentIndex, seq: message.seq, ref, summary: '[图片下载失败]', known: false });
                 }
             }
         }
-        return parts;
+        return { parts, annotations };
     }
 
     /**
      * 主聊天模型没有视觉能力时，改用配置的视觉任务模型把图片转述成文字。
-     * 没有可用的视觉模型时返回空数组，保持原有的"[图片]"占位行为。
+     * 已收藏的表情直接复用收藏摘要，不再重复调用视觉模型。
      */
-    async captionParts(messages: ChatMessage[], maxBytes: number, conversation: Conversation): Promise<ProviderContentPart[]> {
+    async captionParts(messages: ChatMessage[], maxBytes: number, conversation: Conversation): Promise<ComposedImages> {
+        const empty: ComposedImages = { parts: [], annotations: [] };
         const profile = this.tasks.visionProfile(conversation);
-        if (!profile) return [];
-        const images: ProviderMessage[] = [];
-        const slots: number[] = [];
+        if (!profile) return empty;
         const parts: ProviderContentPart[] = [];
+        const annotations: ImageAnnotation[] = [];
+        const pending: Array<{ index: number; message: ProviderMessage }> = [];
         for (const message of messages) {
-            for (const segment of message.content) {
+            for (const [segmentIndex, segment] of message.content.entries()) {
                 if (!isImage(segment)) continue;
+                const ref = `img${annotations.length + 1}`;
+                const annotation: ImageAnnotation = {
+                    messageId: message.id, segmentIndex, seq: message.seq, ref, summary: '[图片]', known: false,
+                };
+                annotations.push(annotation);
+                const slot = parts.length;
+                parts.push({ type: 'text', text: '' });
                 try {
                     const image = await this.download(segment, maxBytes);
-                    images.push({ role: 'user', content: [{ type: 'image', mime: image.mime, data: image.buffer.toString('base64') }] });
-                    slots.push(parts.length);
-                    parts.push({ type: 'text', text: '' });
+                    const known = await this.knownSummary(image.buffer);
+                    if (known) {
+                        annotation.summary = known;
+                        annotation.known = true;
+                        parts[slot] = { type: 'text', text: `[已收藏表情：${known}]` };
+                        continue;
+                    }
+                    pending.push({
+                        index: slot,
+                        message: { role: 'user', content: [{ type: 'image', mime: image.mime, data: image.buffer.toString('base64') }] },
+                    });
                 } catch {
-                    parts.push({ type: 'text', text: '[一张无法下载的图片]' });
+                    annotation.summary = '[图片下载失败]';
+                    parts[slot] = { type: 'text', text: '[一张无法下载的图片]' };
                 }
             }
         }
-        for (let start = 0; start < images.length; start += 4) {
-            const chunk = images.slice(start, start + 4);
+        for (let start = 0; start < pending.length; start += 4) {
+            const chunk = pending.slice(start, start + 4);
             try {
-                const descriptions = await this.tasks.describeImages(chunk, conversation, profile);
+                const descriptions = await this.tasks.describeImages(chunk.map((item) => item.message), conversation, profile);
                 for (const item of descriptions) {
-                    const slot = slots[start + item.index];
-                    if (slot !== undefined) parts[slot] = { type: 'text', text: `[图片内容：${item.description}]` };
+                    const target = chunk[item.index];
+                    if (!target) continue;
+                    parts[target.index] = { type: 'text', text: `[图片内容：${item.description}]` };
+                    const annotation = annotations[target.index];
+                    if (annotation) annotation.summary = item.description;
                 }
             } catch {
                 // 转述失败的图片降级为占位符，不阻断回复。
             }
         }
-        return parts.map((part) => part.type === 'text' && part.text === ''
-            ? { type: 'text' as const, text: '[图片内容暂时无法转述]' }
-            : part);
+        return {
+            parts: parts.map((part) => part.type === 'text' && part.text === ''
+                ? { type: 'text' as const, text: '[图片内容暂时无法转述]' }
+                : part),
+            annotations,
+        };
+    }
+
+    private async knownSummary(buffer: Buffer): Promise<string | null> {
+        try {
+            const sha256 = createHash('sha256').update(buffer).digest('hex');
+            const existing = await this.store.findSticker({ sha256 });
+            return existing?.summary?.trim() || null;
+        } catch {
+            // 查询收藏库失败不应影响图片理解本身。
+            return null;
+        }
     }
 
     /**
@@ -98,7 +140,7 @@ export class StickerService {
         maxBytes: number,
         conversation: Conversation,
         chatProfile: ProviderProfile,
-    ): Promise<ProviderContentPart[]> {
+    ): Promise<ComposedImages> {
         const vision = this.tasks.visionProfile(conversation);
         const inherited = !vision || (vision.id === chatProfile.id && vision.model === chatProfile.model);
         if (chatProfile.vision && inherited) return this.visionParts(messages, maxBytes);
@@ -110,7 +152,7 @@ export class StickerService {
             }
             return this.captionParts(messages, maxBytes, conversation);
         }
-        return chatProfile.vision ? this.visionParts(messages, maxBytes) : [];
+        return chatProfile.vision ? this.visionParts(messages, maxBytes) : { parts: [], annotations: [] };
     }
 
     async processBatch(conversation: Conversation, messages: ChatMessage[]): Promise<void> {

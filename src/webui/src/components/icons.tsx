@@ -281,3 +281,14 @@ export function IconChevronRight({ size, className }: IconProps = defaultProps) 
         </svg>
     )
 }
+
+/** 三点 / 更多操作 */
+export function IconDots({ size, className }: IconProps = defaultProps) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+        </svg>
+    )
+}

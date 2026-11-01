@@ -11,7 +11,8 @@ import type {
     AccessSubjectType,
     NapCatContact,
 } from '../types'
-import {
+import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
+import { Notice,
     Badge,
     Button,
     ErrorNotice,
@@ -41,6 +42,7 @@ interface ContactsData {
 export default function AccessControlPage() {
     const { data, loading, error, refresh } = useResource<AccessControlData>('/access-control')
     const [selectedListId, setSelectedListId] = useState<string | null>(null)
+    const ask = useConfirm()
     const [listDetail, setListDetail] = useState<ListDetailData | null>(null)
     const [loadingDetail, setLoadingDetail] = useState(false)
     const [notice, setNotice] = useState('')
@@ -79,12 +81,6 @@ export default function AccessControlPage() {
             setEditActiveBlacklist(data.state.activeBlacklistId)
             setEditActiveWhitelist(data.state.activeWhitelistId)
             setListTab(data.state.mode)
-            if (!selectedListId && data.lists.length > 0) {
-                const defaultSelect = data.state.mode === 'whitelist'
-                    ? (data.state.activeWhitelistId || data.lists.find((l) => l.type === 'whitelist')?.id)
-                    : (data.state.activeBlacklistId || data.lists.find((l) => l.type === 'blacklist')?.id)
-                setSelectedListId(defaultSelect || data.lists[0]?.id || null)
-            }
         }
     }, [data])
 
@@ -209,7 +205,7 @@ export default function AccessControlPage() {
             msg += '\n\n这是当前生效的名单，删除后生效名单将变为未选择。'
         }
 
-        if (!confirm(msg)) return
+        if (!await ask({ title: msg })) return
 
         try {
             await postJson(`/access-control/lists/${list.id}/delete`, {})
@@ -329,12 +325,12 @@ export default function AccessControlPage() {
     return (
         <div className="page-stack">
             <ErrorNotice message={error || errorMsg} />
-            {notice && <div className="notice">{notice}</div>}
+            <Notice message={notice} />
 
             {/* Top Card: Running Mode & Active List (Hierarchical & Symmetric) */}
             <Panel
                 title="运行模式与生效名单"
-                description="第一级由运行模式决定当前机制；第二级决定使用哪份名单。白名单与黑名单各自独立记录生效名单，切换模式互不干扰。"
+                description="先选运行模式，再选该模式下的生效名单。"
             >
                 <div className="form-grid">
                     <Field label="当前运行模式" hint="白名单模式下未配置名单默认全部禁用；黑名单模式下未配置名单默认全部放行。">
@@ -396,11 +392,11 @@ export default function AccessControlPage() {
             </Panel>
 
             {/* List Management & Detail */}
-            <div className="editor-layout">
+            <div>
                 {/* Left: Lists sidebar */}
                 <Panel
                     title="名单库"
-                    description="系统内置默认白名单与黑名单。您可以创建多套名单，按需切换当前生效名单。"
+                    description="系统默认名单不可删除，可新建多套名单。"
                     actions={
                         <Button
                             variant="primary"
@@ -469,20 +465,22 @@ export default function AccessControlPage() {
                                 ? data?.state.activeWhitelistId === l.id
                                 : data?.state.activeBlacklistId === l.id
                             return (
-                                <button
-                                    key={l.id}
-                                    className={`resource-row ${selectedListId === l.id ? 'selected' : ''}`}
-                                    onClick={() => setSelectedListId(l.id)}
-                                >
-                                    <span>
+                                <div key={l.id} className={`resource-row object-row ${selectedListId === l.id ? 'selected' : ''}`}>
+                                    <button type="button" className="object-main resource-row-button" onClick={() => setSelectedListId(l.id)}>
                                         <strong>{l.name}</strong>
                                         <small>{l.description || '无描述'}</small>
-                                    </span>
+                                    </button>
                                     <div className="flex items-center gap-1">
                                         {l.isDefault && <Badge tone="neutral">默认</Badge>}
                                         {isActive && <Badge tone={l.type === 'whitelist' ? 'good' : 'warn'}>生效中</Badge>}
                                     </div>
-                                </button>
+                                    <PopoverMenu actions={[
+                                        { label: '配置', onSelect: () => setSelectedListId(l.id) },
+                                        { label: '设为当前生效名单', onSelect: () => void handleSetActive(l) },
+                                        { label: '复制副本', onSelect: () => void handleDuplicateList(l) },
+                                        { label: l.isDefault ? '系统默认名单不可删除' : '删除', danger: true, disabled: l.isDefault, onSelect: () => void handleDeleteList(l) },
+                                    ]} />
+                                </div>
                             )
                         })}
                         {currentTabLists.length === 0 && (
@@ -492,25 +490,21 @@ export default function AccessControlPage() {
                 </Panel>
 
                 {/* Right: Selected List Members & Add Form */}
-                {selectedListId && listDetail ? (
-                    <div className="page-stack">
-                        <Panel
-                            title={`${listDetail.list.name} (${listDetail.list.type === 'whitelist' ? '白名单' : '黑名单'})`}
-                            description={listDetail.list.description || '管理名单内的用户与群聊条目。白名单中的群聊允许整群使用，用户白名单控制私聊权限。'}
-                            actions={
-                                <div className="button-row" style={{ margin: 0 }}>
-                                    <Button onClick={() => void handleSetActive(listDetail.list)}>
-                                        设为当前生效名单
-                                    </Button>
-                                    <Button onClick={() => void handleDuplicateList(listDetail.list)}>复制副本</Button>
-                                    {listDetail.list.isDefault ? (
-                                        <Badge tone="neutral">系统默认名单不可删除</Badge>
-                                    ) : (
-                                        <Button variant="danger" onClick={() => void handleDeleteList(listDetail.list)}>删除此名单</Button>
-                                    )}
-                                </div>
-                            }
-                        >
+                {selectedListId && listDetail && (
+                    <SidePanel
+                        title={`${listDetail.list.name}（${listDetail.list.type === 'whitelist' ? '白名单' : '黑名单'}）`}
+                        subtitle={listDetail.list.description || '管理名单内的用户与群聊条目。'}
+                        onClose={() => setSelectedListId(null)}
+                        footer={<>
+                            {listDetail.list.isDefault
+                                ? <Badge tone="neutral">系统默认名单不可删除</Badge>
+                                : <Button variant="danger" onClick={() => void handleDeleteList(listDetail.list)}>删除此名单</Button>}
+                            <div className="flex items-center gap-2">
+                                <Button onClick={() => void handleDuplicateList(listDetail.list)}>复制副本</Button>
+                                <Button variant="primary" onClick={() => void handleSetActive(listDetail.list)}>设为生效名单</Button>
+                            </div>
+                        </>}
+                    >
                             {/* Member addition section */}
                             <div className="two-column">
                                 {/* From Contacts */}
@@ -663,12 +657,7 @@ export default function AccessControlPage() {
                                     </div>
                                 )}
                             </div>
-                        </Panel>
-                    </div>
-                ) : (
-                    <Panel>
-                        <p className="muted">请在左侧选择或新建一个名单以查看和管理其成员。</p>
-                    </Panel>
+                    </SidePanel>
                 )}
             </div>
         </div>

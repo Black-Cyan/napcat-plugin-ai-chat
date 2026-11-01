@@ -167,6 +167,20 @@ export interface SpeechConfig {
     cacheLimitMb: number;
 }
 
+export interface ImageAnnotation {
+    messageId: string;
+    segmentIndex: number;
+    seq: number;
+    ref: string;
+    summary: string;
+    known: boolean;
+}
+
+export interface ComposedImages {
+    parts: import('./providers/types').ProviderContentPart[];
+    annotations: ImageAnnotation[];
+}
+
 export interface SynthesizedSpeech {
     path: string;
     mime: string;
@@ -175,6 +189,7 @@ export interface SynthesizedSpeech {
 
 export interface PluginConfig {
     enabled: boolean;
+    timezone: string;
     debug: boolean;
     commandPrefix: '#' | string;
     owners: string[];

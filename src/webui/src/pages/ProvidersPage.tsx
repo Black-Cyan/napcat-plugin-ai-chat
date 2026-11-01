@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useConfig } from '../hooks/useConfig'
 import { postJson } from '../utils/api'
 import type { ProviderProfile, ProviderType } from '../types'
-import { Badge, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
+import { Notice, Badge, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
+import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
 import GoogleModelField from '../components/GoogleModelField'
 
 const blank = (): ProviderProfile => ({
@@ -13,11 +14,12 @@ const blank = (): ProviderProfile => ({
 
 export default function ProvidersPage() {
     const { config, setConfig, saving, error, notice, save } = useConfig()
+    const ask = useConfirm()
     const [selected, setSelected] = useState<string | null>(null)
     const [testing, setTesting] = useState(false)
     const [testResult, setTestResult] = useState('')
     if (!config) return <><ErrorNotice message={error} /><Loading label="正在读取模型配置" /></>
-    const current = config.providers.find((item) => item.id === selected) ?? config.providers[0] ?? null
+    const current = config.providers.find((item) => item.id === selected) ?? null
     const patch = (value: Partial<ProviderProfile>) => {
         if (!current) return
         setConfig({ ...config, providers: config.providers.map((item) => item.id === current.id ? { ...item, ...value } : item) })
@@ -27,91 +29,104 @@ export default function ProvidersPage() {
         setConfig({ ...config, providers: [...config.providers, profile], defaultProviderId: config.defaultProviderId ?? profile.id })
         setSelected(profile.id)
     }
-    const remove = () => {
-        if (!current || !confirm(`删除模型“${current.name}”？使用它的会话会回退到默认模型。`)) return
-        const providers = config.providers.filter((item) => item.id !== current.id)
+    const remove = async (profile: ProviderProfile) => {
+        if (!await ask({ title: `删除模型“${profile.name}”？`, description: '使用它的会话会回退到默认模型，相关任务槽位会被清空。' })) return
+        const providers = config.providers.filter((item) => item.id !== profile.id)
         setConfig({
             ...config, providers,
-            defaultProviderId: config.defaultProviderId === current.id ? providers[0]?.id ?? null : config.defaultProviderId,
+            defaultProviderId: config.defaultProviderId === profile.id ? providers[0]?.id ?? null : config.defaultProviderId,
             taskProviders: {
-                summary: config.taskProviders.summary === current.id ? null : config.taskProviders.summary,
-                memory: config.taskProviders.memory === current.id ? null : config.taskProviders.memory,
-                vision: config.taskProviders.vision === current.id ? null : config.taskProviders.vision,
-                tts: config.taskProviders.tts === current.id ? null : config.taskProviders.tts,
-                speech: config.taskProviders.speech === current.id ? null : config.taskProviders.speech,
+                summary: config.taskProviders.summary === profile.id ? null : config.taskProviders.summary,
+                memory: config.taskProviders.memory === profile.id ? null : config.taskProviders.memory,
+                vision: config.taskProviders.vision === profile.id ? null : config.taskProviders.vision,
+                tts: config.taskProviders.tts === profile.id ? null : config.taskProviders.tts,
+                speech: config.taskProviders.speech === profile.id ? null : config.taskProviders.speech,
             },
         })
-        setSelected(providers[0]?.id ?? null)
+        setSelected(null)
     }
-    const test = async () => {
-        if (!current) return
+    const test = async (profile: ProviderProfile) => {
         setTesting(true); setTestResult('')
         try {
             await save()
-            const result = await postJson<{ ok: boolean; model: string }>('/providers/test', { id: current.id })
+            const result = await postJson<{ ok: boolean; model: string }>('/providers/test', { id: profile.id })
             setTestResult(`连接成功：${result.model}`)
         } catch (reason) { setTestResult(reason instanceof Error ? reason.message : '连接失败') }
         finally { setTesting(false) }
     }
     return <div className="page-stack">
-        <ErrorNotice message={error} />{notice && <div className="notice">{notice}</div>}
-        <div className="editor-layout">
-            <Panel title="模型配置" description="每套配置独立保存连接与能力声明。" actions={<Button variant="primary" onClick={add}>添加模型</Button>}>
-                <div className="resource-list">
-                    {config.providers.map((provider) => <button key={provider.id} className={`resource-row ${current?.id === provider.id ? 'selected' : ''}`} onClick={() => setSelected(provider.id)}>
-                        <span><strong>{provider.name}</strong><small>{provider.model}</small></span><Badge>{provider.type}</Badge>
-                    </button>)}
-                    {!config.providers.length && <p className="muted">尚未配置模型。添加一套配置后即可开始。</p>}
-                </div>
-            </Panel>
-            <div className="page-stack">
-                {current && <Panel title="连接与模型" description="密钥只会写入本地配置，不会返回明文。">
-                    <div className="form-grid">
-                        <Field label="配置名称"><Input value={current.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
-                        <Field label="协议"><Select value={current.type} onChange={(e) => patch({ type: e.target.value as ProviderType })}><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google">Google Gemini</option></Select></Field>
-                        {current.type === 'google'
-                            ? <GoogleModelField key={current.id} profile={current} onPatch={patch} />
-                            : <Field label="模型名称" wide><Input value={current.model} onChange={(e) => patch({ model: e.target.value })} placeholder="例如 gpt-4o-mini / claude-sonnet-4-5" /></Field>}
-                        {current.type === 'google' ? <details className="field-wide">
-                            <summary>高级：自定义兼容服务端点（可选）</summary>
-                            <Field label="API 地址" hint="官方 Gemini API 无需填写。仅在明确使用代理时填写 v1beta 协议根地址。"><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>
-                        </details> : <Field label="API 地址" hint="填写协议根地址；留空使用官方默认值。" wide><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>}
-                        <Field label="API 密钥" wide><Input type="password" value={current.apiKey} onChange={(e) => patch({ apiKey: e.target.value })} autoComplete="new-password" /></Field>
-                        <Field label="实际上下文上限"><NumberInput value={current.contextWindow} onChange={(e) => patch({ contextWindow: Number(e.target.value) })} /></Field>
-                        <Field label="最大输出 token"><NumberInput value={current.maxOutputTokens} onChange={(e) => patch({ maxOutputTokens: Number(e.target.value) })} /></Field>
-                        <Field label="温度"><NumberInput min="0" max="2" step="0.1" value={current.temperature} onChange={(e) => patch({ temperature: Number(e.target.value) })} /></Field>
-                    </div>
-                    <Toggle checked={current.vision} onChange={(vision) => patch({ vision })} label="支持图片理解" />
-                    <Toggle checked={current.toolCalling} onChange={(toolCalling) => patch({ toolCalling })} label="支持工具调用" />
-                    <Toggle checked={current.structuredOutput} onChange={(structuredOutput) => patch({ structuredOutput })} label="支持原生结构化输出" />
-                    <Toggle checked={current.tts} onChange={(tts) => patch({ tts })} label="声明为 TTS 语音合成模型" />
-                    <Toggle checked={current.speechRecognition} onChange={(speechRecognition) => patch({ speechRecognition })} label="声明为语音理解（转写）模型" />
-                    {(current.tts || current.speechRecognition) && current.type === 'anthropic' && <p className="muted">Anthropic 没有音频接口，请改用 OpenAI 或 Google 配置提供语音能力。</p>}
-                    {current.tts && <div className="form-grid compact-top">
-                        <Field label="音色（voice）" hint="留空用供应商默认：OpenAI alloy，Gemini Kore。">
-                            <Input value={current.ttsVoice ?? ''} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy / Kore" />
-                        </Field>
-                        <Field label="语速"><NumberInput min="0.25" max="4" step="0.05" value={current.ttsSpeed ?? 1} onChange={(e) => patch({ ttsSpeed: Number(e.target.value) })} /></Field>
-                    </div>}
-                </Panel>}
-                <Panel title="模型分配" description="辅助任务留空时继承当前会话的聊天模型。">
-                    <div className="form-grid">
-                        <Field label="全局默认聊天模型"><ProviderSelect excludeTts value={config.defaultProviderId} providers={config.providers} onChange={(defaultProviderId) => setConfig({ ...config, defaultProviderId })} /></Field>
-                        <Field label="历史摘要模型"><ProviderSelect excludeTts nullable value={config.taskProviders.summary} providers={config.providers} onChange={(summary) => setConfig({ ...config, taskProviders: { ...config.taskProviders, summary } })} /></Field>
-                        <Field label="记忆提取模型"><ProviderSelect excludeTts nullable value={config.taskProviders.memory} providers={config.providers} onChange={(memory) => setConfig({ ...config, taskProviders: { ...config.taskProviders, memory } })} /></Field>
-                        <Field label="图片理解模型"><ProviderSelect excludeTts nullable value={config.taskProviders.vision} providers={config.providers} onChange={(vision) => setConfig({ ...config, taskProviders: { ...config.taskProviders, vision } })} /></Field>
-                        <Field label="语音合成（TTS）模型" hint="请选择 Gemini TTS 系列或 OpenAI 语音模型；TTS 模型不能再作为聊天/视觉模型。"><ProviderSelect nullable value={config.taskProviders.tts} providers={config.providers} onChange={(tts) => setConfig({ ...config, taskProviders: { ...config.taskProviders, tts } })} /></Field>
-                        <Field label="语音转写模型"><ProviderSelect excludeTts nullable value={config.taskProviders.speech} providers={config.providers} onChange={(speech) => setConfig({ ...config, taskProviders: { ...config.taskProviders, speech } })} /></Field>
-                    </div>
-                </Panel>
+        <ErrorNotice message={error} /><Notice message={notice} />
+        <Panel title="模型配置" description="点右侧三点配置、测试或删除。" actions={<Button variant="primary" onClick={add}>添加模型</Button>}>
+            <div className="resource-list">
+                {config.providers.map((provider) => <div key={provider.id} className={`resource-row object-row ${current?.id === provider.id ? 'selected' : ''}`}>
+                    <button type="button" className="object-main resource-row-button" onClick={() => setSelected(provider.id)}>
+                        <strong>{provider.name}</strong><small>{provider.model || '未填写模型名'}</small>
+                    </button>
+                    <Badge>{provider.type}</Badge>
+                    <PopoverMenu actions={[
+                        { label: '配置', onSelect: () => setSelected(provider.id) },
+                        { label: testing ? '正在测试' : '保存并测试连接', onSelect: () => void test(provider), disabled: testing },
+                        { label: '删除', danger: true, onSelect: () => void remove(provider) },
+                    ]} />
+                </div>)}
+                {!config.providers.length && <p className="muted">尚未配置模型。添加一套配置后即可开始。</p>}
             </div>
-        </div>
-        {testResult && <div className="notice">{testResult}</div>}
+        </Panel>
+        <Panel title="模型分配" description="辅助任务留空时继承当前会话的聊天模型。">
+            <div className="form-grid">
+                <Field label="全局默认聊天模型"><ProviderSelect excludeTts value={config.defaultProviderId} providers={config.providers} onChange={(defaultProviderId) => setConfig({ ...config, defaultProviderId })} /></Field>
+                <Field label="历史摘要模型"><ProviderSelect excludeTts nullable value={config.taskProviders.summary} providers={config.providers} onChange={(summary) => setConfig({ ...config, taskProviders: { ...config.taskProviders, summary } })} /></Field>
+                <Field label="记忆提取模型"><ProviderSelect excludeTts nullable value={config.taskProviders.memory} providers={config.providers} onChange={(memory) => setConfig({ ...config, taskProviders: { ...config.taskProviders, memory } })} /></Field>
+                <Field label="图片理解模型"><ProviderSelect excludeTts nullable value={config.taskProviders.vision} providers={config.providers} onChange={(vision) => setConfig({ ...config, taskProviders: { ...config.taskProviders, vision } })} /></Field>
+                <Field label="语音合成（TTS）模型" hint="请选择 Gemini TTS 系列或 OpenAI 语音模型；TTS 模型不能再作为聊天/视觉模型。"><ProviderSelect nullable value={config.taskProviders.tts} providers={config.providers} onChange={(tts) => setConfig({ ...config, taskProviders: { ...config.taskProviders, tts } })} /></Field>
+                <Field label="语音转写模型"><ProviderSelect excludeTts nullable value={config.taskProviders.speech} providers={config.providers} onChange={(speech) => setConfig({ ...config, taskProviders: { ...config.taskProviders, speech } })} /></Field>
+            </div>
+        </Panel>
+        <Notice message={testResult} />
         <div className="sticky-save">
-            {current && <Button variant="danger" onClick={remove}>删除当前模型</Button>}
-            {current && <Button disabled={testing} onClick={() => void test()}>{testing ? '正在测试' : '保存并测试连接'}</Button>}
             <Button variant="primary" disabled={saving} onClick={() => void save()}>保存模型配置</Button>
         </div>
+
+        {current && <SidePanel
+            title={current.name || '模型配置'}
+            subtitle={`${current.type} · ${current.model || '未填写模型名'}`}
+            onClose={() => setSelected(null)}
+            footer={<>
+                <Button variant="danger" onClick={() => void remove(current)}>删除</Button>
+                <div className="flex items-center gap-2">
+                    <Button disabled={testing} onClick={() => void test(current)}>{testing ? '正在测试' : '保存并测试'}</Button>
+                    <Button variant="primary" disabled={saving} onClick={() => void save()}>保存</Button>
+                </div>
+            </>}
+        >
+            <div className="form-grid">
+                <Field label="配置名称"><Input value={current.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
+                <Field label="协议"><Select value={current.type} onChange={(e) => patch({ type: e.target.value as ProviderType })}><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google">Google Gemini</option></Select></Field>
+                {current.type === 'google'
+                    ? <GoogleModelField key={current.id} profile={current} onPatch={patch} />
+                    : <Field label="模型名称" wide><Input value={current.model} onChange={(e) => patch({ model: e.target.value })} placeholder="例如 gpt-4o-mini / claude-sonnet-4-5" /></Field>}
+                {current.type === 'google' ? <details className="field-wide">
+                    <summary>高级：自定义兼容服务端点（可选）</summary>
+                    <Field label="API 地址" hint="官方 Gemini API 无需填写。仅在明确使用代理时填写 v1beta 协议根地址。"><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>
+                </details> : <Field label="API 地址" hint="填写协议根地址；留空使用官方默认值。" wide><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>}
+                <Field label="API 密钥" wide><Input type="password" value={current.apiKey} onChange={(e) => patch({ apiKey: e.target.value })} autoComplete="new-password" /></Field>
+                <Field label="实际上下文上限"><NumberInput value={current.contextWindow} onChange={(e) => patch({ contextWindow: Number(e.target.value) })} /></Field>
+                <Field label="最大输出 token"><NumberInput value={current.maxOutputTokens} onChange={(e) => patch({ maxOutputTokens: Number(e.target.value) })} /></Field>
+                <Field label="温度"><NumberInput min="0" max="2" step="0.1" value={current.temperature} onChange={(e) => patch({ temperature: Number(e.target.value) })} /></Field>
+            </div>
+            <Toggle checked={current.vision} onChange={(vision) => patch({ vision })} label="支持图片理解" />
+            <Toggle checked={current.toolCalling} onChange={(toolCalling) => patch({ toolCalling })} label="支持工具调用" />
+            <Toggle checked={current.structuredOutput} onChange={(structuredOutput) => patch({ structuredOutput })} label="支持原生结构化输出" />
+            <Toggle checked={current.tts} onChange={(tts) => patch({ tts })} label="声明为 TTS 语音合成模型" />
+            <Toggle checked={current.speechRecognition} onChange={(speechRecognition) => patch({ speechRecognition })} label="声明为语音理解（转写）模型" />
+            {(current.tts || current.speechRecognition) && current.type === 'anthropic' && <p className="muted">Anthropic 没有音频接口，请改用 OpenAI 或 Google 配置提供语音能力。</p>}
+            {current.tts && <div className="form-grid compact-top">
+                <Field label="音色（voice）" hint="留空用供应商默认：OpenAI alloy，Gemini Kore。">
+                    <Input value={current.ttsVoice ?? ''} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy / Kore" />
+                </Field>
+                <Field label="语速"><NumberInput min="0.25" max="4" step="0.05" value={current.ttsSpeed ?? 1} onChange={(e) => patch({ ttsSpeed: Number(e.target.value) })} /></Field>
+            </div>}
+        </SidePanel>}
     </div>
 }
 

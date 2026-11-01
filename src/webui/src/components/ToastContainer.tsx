@@ -1,39 +1,63 @@
-import { useToasts, type Toast, type ToastType } from '../hooks/useToast'
+import { useEffect, useRef, useState } from 'react'
+import { dismissToast, useToasts, type Toast } from '../hooks/useToast'
 import { IconCheck, IconX, IconInfo, IconAlert } from './icons'
 
-const typeStyles: Record<ToastType, { bg: string; icon: React.ReactNode }> = {
-    success: { bg: 'bg-emerald-600 text-white', icon: <IconCheck size={15} /> },
-    error: { bg: 'bg-red-600 text-white', icon: <IconX size={15} /> },
-    info: { bg: 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900', icon: <IconInfo size={15} /> },
-    warning: { bg: 'bg-amber-500 text-white', icon: <IconAlert size={15} /> },
+const toneIcon = {
+    success: <IconCheck size={15} />,
+    error: <IconX size={15} />,
+    info: <IconInfo size={15} />,
+    warning: <IconAlert size={15} />,
 }
 
 export default function ToastContainer() {
     const toasts = useToasts()
+    return <div className="toast-region" aria-live="polite">
+        {toasts.map((toast) => <ToastItem key={toast.id} toast={toast} />)}
+    </div>
+}
 
-    return (
-        <div className="fixed top-4 right-4 z-[100] pointer-events-none flex flex-col items-end gap-2">
-            {toasts.map((toast: Toast) => {
-                const style = typeStyles[toast.type]
-                return (
-                    <div
-                        key={toast.id}
-                        className={`
-                            px-4 py-2.5 rounded-lg pointer-events-auto relative overflow-hidden
-                            flex items-center gap-2 min-w-[180px] max-w-[360px]
-                            text-sm font-medium shadow-lg
-                            ${style.bg}
-                            ${toast.hiding ? 'toast-exit' : 'toast-enter'}
-                        `}
-                    >
-                        <span className="flex items-center gap-2 relative z-10">
-                            {style.icon}
-                            {toast.message}
-                        </span>
-                        {!toast.hiding && <div className="toast-progress" />}
-                    </div>
-                )
-            })}
+function ToastItem({ toast }: { toast: Toast }) {
+    const [progress, setProgress] = useState(100)
+    const remaining = useRef(toast.duration)
+    const paused = useRef(false)
+    const dismissed = useRef(false)
+
+    useEffect(() => {
+        if (toast.hiding) return
+        let frame = 0
+        let last = performance.now()
+        const tick = (now: number) => {
+            const delta = now - last
+            last = now
+            if (!paused.current) {
+                // 进度条与剩余时间共用同一个计时源，保证归零即关闭。
+                remaining.current = Math.max(0, remaining.current - delta)
+                setProgress((remaining.current / toast.duration) * 100)
+                if (remaining.current <= 0 && !dismissed.current) {
+                    dismissed.current = true
+                    dismissToast(toast.id)
+                    return
+                }
+            }
+            frame = requestAnimationFrame(tick)
+        }
+        frame = requestAnimationFrame(tick)
+        return () => cancelAnimationFrame(frame)
+    }, [toast.id, toast.duration, toast.hiding])
+
+    return <div
+        className={`toast toast-${toast.type} ${toast.hiding ? 'toast-exit' : 'toast-enter'}`}
+        role="status"
+        onMouseEnter={() => { paused.current = true }}
+        onMouseLeave={() => { paused.current = false }}
+    >
+        <div className="toast-content">
+            <span className="toast-icon">{toneIcon[toast.type]}</span>
+            <span className="toast-message">{toast.message}</span>
+            <button type="button" className="toast-close" aria-label="关闭通知" onClick={() => dismissToast(toast.id)}>
+                <IconX size={13} />
+            </button>
         </div>
-    )
+        {!toast.hiding && <div className="toast-track"><span className="toast-bar" style={{ width: `${progress}%` }} /></div>}
+    </div>
 }
