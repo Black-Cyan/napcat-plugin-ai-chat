@@ -105,3 +105,33 @@ export function ErrorNotice({ message }: { message: string }) {
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'good' | 'warn' | 'danger' }) {
     return <span className={`badge badge-${tone}`}>{children}</span>
 }
+
+/** 固定宽度内循环滚动展示超长文本，避免撑破侧栏布局；悬停暂停便于阅读。 */
+export function MarqueeText({ text, className = '' }: { text: string; className?: string }) {
+    const host = useRef<HTMLElement>(null)
+    const [overflow, setOverflow] = useState(false)
+    useEffect(() => {
+        const element = host.current
+        if (!element) return
+        const measure = () => {
+            // 直接量文本自然宽度：裁剪后的子节点无法反映真实溢出。
+            const probe = document.createElement('span')
+            const style = getComputedStyle(element)
+            probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0;'
+            probe.style.font = style.font
+            probe.textContent = text
+            document.body.appendChild(probe)
+            const natural = probe.offsetWidth
+            probe.remove()
+            setOverflow(natural > element.clientWidth + 2)
+        }
+        measure()
+        window.addEventListener('resize', measure)
+        return () => window.removeEventListener('resize', measure)
+    }, [text])
+    return <span ref={host} className={`marquee ${overflow ? 'marquee-active' : ''} ${className}`}>
+        {overflow
+            ? <span className="marquee-inner"><span>{text}</span><span aria-hidden="true">{text}</span></span>
+            : <span className="marquee-text">{text}</span>}
+    </span>
+}

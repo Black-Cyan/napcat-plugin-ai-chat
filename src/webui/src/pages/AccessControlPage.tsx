@@ -12,6 +12,7 @@ import type {
     NapCatContact,
 } from '../types'
 import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
+import { MarqueeText } from '../components/ui'
 import { Notice,
     Badge,
     Button,
@@ -636,11 +637,9 @@ export default function AccessControlPage() {
                                 ) : (
                                     <div className="resource-list" style={{ maxHeight: '400px' }}>
                                         {listDetail.members.map((m) => (
-                                            <div key={m.id} className="resource-row">
-                                                <span>
-                                                    <strong>
-                                                        {m.subjectId} {m.note ? `(${m.note})` : ''}
-                                                    </strong>
+                                            <div key={m.id} className="resource-row member-row">
+                                                <span className="member-info">
+                                                    <MarqueeText className="member-title" text={`${m.subjectId}${m.note ? ` (${m.note})` : ''}`} />
                                                     <small>{new Date(m.createdAt).toLocaleString()}</small>
                                                 </span>
                                                 <Badge tone={m.subjectType === 'group' ? 'neutral' : 'warn'}>

@@ -9,8 +9,10 @@ import { ProviderRegistry } from '../../providers/registry';
 import { synthesizeSpeech, transcribeSpeech, type SpeechAudio } from '../../providers/speech';
 import { canSendRecord, getRecord, sendMessage } from '../../napcat/actions';
 import { recordSegment, textSegment } from '../../napcat/message-segments';
-import { convertForQQ, convertToMp3, probeDurationSeconds } from './ffmpeg';
+import { concatAudio, convertForQQ, convertToMp3, createSilence, probeDurationSeconds } from './ffmpeg';
+import { flattenMarkup, hasFineControl, parseFishMarkup } from '../../providers/fish-markup';
 import { effectiveSpeech } from '../chat/config';
+import { capabilitiesOf } from '../../providers/capabilities';
 
 export class SpeechService {
     constructor(private readonly store: Store, private readonly providers: ProviderRegistry) {}
@@ -29,7 +31,7 @@ export class SpeechService {
         try {
             const { profile, explicit } = this.profileFor('tts', conversation);
             // 显式指定的语音模型直接生效；继承主模型时才要求声明 TTS 能力。
-            return explicit || profile.tts ? profile : null;
+            return explicit || capabilitiesOf(profile).tts ? profile : null;
         } catch {
             return null;
         }
@@ -38,7 +40,7 @@ export class SpeechService {
     transcribeProfile(conversation: Conversation): ProviderProfile | null {
         try {
             const { profile, explicit } = this.profileFor('speech', conversation);
-            return explicit || profile.speechRecognition ? profile : null;
+            return explicit || capabilitiesOf(profile).stt ? profile : null;
         } catch {
             return null;
         }
@@ -61,16 +63,72 @@ export class SpeechService {
             await fs.utimes(existing, new Date(), new Date()).catch(() => undefined);
             return { path: existing, mime: mimeForExtension(path.extname(existing)), cached: true };
         }
-        const audio = await synthesizeSpeech(profile, content);
-        const filename = path.join(directory, `${key}${audio.extension}`);
-        await fs.writeFile(filename, audio.buffer, { mode: 0o600 });
+        const filename = profile.type === 'fishaudio'
+            ? await this.synthesizeFish(profile, content, directory, key)
+            : await (async () => {
+                // 非 Fish 供应商不支持这些标记，先还原成纯文本，避免被原样朗读。
+                const audio = await synthesizeSpeech(profile, flattenMarkup(parseFishMarkup(content)) || content);
+                const target = path.join(directory, `${key}${audio.extension}`);
+                await fs.writeFile(target, audio.buffer, { mode: 0o600 });
+                return target;
+            })();
         const duration = await probeDurationSeconds(filename);
         if (duration && duration > config.maxTtsSeconds) {
             await fs.unlink(filename).catch(() => undefined);
             throw new Error(`合成语音约 ${Math.round(duration)} 秒，超过 ${config.maxTtsSeconds} 秒上限，请缩短文本`);
         }
         await this.trimCache(directory, config.cacheLimitMb);
-        return { path: filename, mime: audio.mime, cached: false };
+        return { path: filename, mime: mimeForExtension(path.extname(filename)), cached: false };
+    }
+
+    /**
+     * Fish Audio 细粒度控制：[停顿] 变成真实静音段，[加重] 段落提高音量并略放慢。
+     * 分段合成后用 ffmpeg 拼接；没有 ffmpeg 时退化为省略号与单段合成。
+     */
+    private async synthesizeFish(profile: ProviderProfile, text: string, directory: string, key: string): Promise<string> {
+        const segments = parseFishMarkup(text);
+        if (!segments.length) throw new Error('语音文本不能为空');
+        if (!hasFineControl(segments)) {
+            const audio = await synthesizeSpeech(profile, segments.map((segment) => segment.kind === 'speech' ? segment.text : '').join('') || text);
+            const target = path.join(directory, `${key}${audio.extension}`);
+            await fs.writeFile(target, audio.buffer, { mode: 0o600 });
+            return target;
+        }
+        const parts: string[] = [];
+        const cleanup: string[] = [];
+        try {
+            // 先验证静音生成能力，避免在无 ffmpeg 环境里白白消耗 TTS 调用。
+            const firstPause = segments.findIndex((segment) => segment.kind === 'pause');
+            if (firstPause >= 0) {
+                const probe = path.join(directory, `${key}-part-${firstPause}.mp3`);
+                const pause = segments[firstPause] as { kind: 'pause'; ms: number };
+                if (!await createSilence(probe, pause.ms / 1000)) throw new Error('NO_FFMPEG');
+            }
+            for (const [index, segment] of segments.entries()) {
+                const part = path.join(directory, `${key}-part-${index}.mp3`);
+                if (segment.kind === 'pause') {
+                    if (index !== firstPause && !await createSilence(part, segment.ms / 1000)) throw new Error('NO_FFMPEG');
+                } else {
+                    const audio = await synthesizeSpeech(profile, segment.text, { emphasis: segment.emphasis });
+                    await fs.writeFile(part, audio.buffer, { mode: 0o600 });
+                }
+                parts.push(part);
+                cleanup.push(part);
+            }
+            const target = path.join(directory, `${key}.mp3`);
+            if (!await concatAudio(parts, target)) throw new Error('NO_FFMPEG');
+            return target;
+        } catch (error) {
+            if (error instanceof Error && error.message === 'NO_FFMPEG') {
+                const audio = await synthesizeSpeech(profile, flattenMarkup(segments));
+                const target = path.join(directory, `${key}${audio.extension}`);
+                await fs.writeFile(target, audio.buffer, { mode: 0o600 });
+                return target;
+            }
+            throw error;
+        } finally {
+            await Promise.all(cleanup.map((file) => fs.unlink(file).catch(() => undefined)));
+        }
     }
 
     /**

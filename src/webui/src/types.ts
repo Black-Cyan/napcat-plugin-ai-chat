@@ -1,5 +1,5 @@
 export type ConversationType = 'private' | 'group'
-export type ProviderType = 'openai' | 'anthropic' | 'google'
+export type ProviderType = 'openai' | 'anthropic' | 'google' | 'fishaudio'
 export type DatabaseDriver = 'sqlite' | 'postgres' | 'mysql'
 export type AccessMode = 'blacklist' | 'whitelist'
 export type AccessListType = 'blacklist' | 'whitelist'
@@ -54,7 +54,7 @@ export interface ProviderProfile {
     id: string; name: string; type: ProviderType; model: string; apiKey: string; baseUrl?: string
     contextWindow: number; maxOutputTokens: number; temperature: number
     vision: boolean; toolCalling: boolean; structuredOutput: boolean
-    tts: boolean; speechRecognition: boolean; ttsVoice?: string; ttsSpeed?: number
+    tts: boolean; speechRecognition: boolean; ttsVoice?: string; ttsSpeed?: number; sttModel?: string
 }
 export interface GoogleModelInfo {
     name: string; baseModelId: string; displayName: string; description: string

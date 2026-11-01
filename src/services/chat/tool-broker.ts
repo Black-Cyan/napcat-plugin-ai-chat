@@ -39,7 +39,7 @@ export class ToolBroker {
             },
             ...(conversation && this.speech.ttsProfile(conversation) && !speechSendDisabled(conversation) ? [{
                 name: 'send_voice',
-                description: '把一段文字用配置的 TTS 模型合成为语音并发送到当前会话。仅适合简短、适合朗读的内容；发送失败会自动回退为文字。返回 sent_as=record 即表示语音已真实发出，不要再对参与者声称无法发送语音。',
+                description: '把一段文字用配置的 TTS 模型合成为语音并发送到当前会话。文本要适合朗读：口语化、简短、有自然情绪，不要包含代码、链接或括号注释。使用 Fish Audio 时支持细粒度标记：[停顿] 或 [停顿 0.5s] 插入真实静音，[加重]…[/加重] 让该段更有力度，标记本身不会被朗读；没有 ffmpeg 时停顿退化为省略号。发送失败会自动回退为文字。返回 sent_as=record 即表示语音已真实发出，不要再对参与者声称无法发送语音。',
                 parameters: objectSchema({ text: { type: 'string' } }, ['text']),
             }] : []),
             {
@@ -65,7 +65,7 @@ export class ToolBroker {
         batchId: string,
         invocationId: string,
         call: ProviderToolCall,
-    ): Promise<{ content: ReturnType<typeof textPart>[]; toolName: string }> {
+    ): Promise<{ content: ReturnType<typeof textPart>[]; toolName: string; final?: boolean }> {
         const key = `${batchId}:${invocationId}:${call.id}`;
         const begin = await this.store.beginTool(key, conversation.id, call.name, call.arguments);
         if (begin.duplicate) return toolResult(call.name, begin.result ?? '该工具已执行或仍在执行，未重复操作');
@@ -122,13 +122,14 @@ export class ToolBroker {
                 rawEvent: { tool: 'send_voice', fallback: result.fallback }, occurredAt: Date.now(), batch: false,
             });
             return result.fallback
-                ? { ok: true, fallback: 'text', message_id: result.messageId, note: '语音发送失败，已改为文字发送' }
+                ? { ok: true, fallback: 'text', message_id: result.messageId, note: '文字消息已经作为最终回复发送，不要再输出文字，也不要调用其他工具，直接结束本轮。', final: true }
                 : {
                     ok: true,
                     message_id: result.messageId,
                     sent_as: 'record',
                     cached: result.cached,
-                    note: '语音已合成并以语音消息发送成功。之后不要再声称自己无法发送语音。',
+                    note: '语音消息已经是给参与者的最终回复，不要再输出文字，也不要调用其他工具，直接结束本轮。之后不要再声称自己无法发送语音。',
+                    final: true,
                 };
         }
         if (call.name === 'collect_sticker') {

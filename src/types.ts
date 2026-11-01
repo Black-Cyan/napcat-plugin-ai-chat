@@ -1,5 +1,5 @@
 export type ConversationType = 'private' | 'group';
-export type ProviderType = 'openai' | 'anthropic' | 'google';
+export type ProviderType = 'openai' | 'anthropic' | 'google' | 'fishaudio';
 export type DatabaseDriver = 'sqlite' | 'postgres' | 'mysql';
 export type MemoryScope = 'private' | 'group';
 export type AccessMode = 'blacklist' | 'whitelist';
@@ -77,6 +77,8 @@ export interface ProviderProfile {
     speechRecognition?: boolean;
     ttsVoice?: string;
     ttsSpeed?: number;
+    /** Fish Audio 的语音转写模型（model 请求头），默认 transcribe-1-pro。 */
+    sttModel?: string;
 }
 
 export interface GoogleModelInfo {

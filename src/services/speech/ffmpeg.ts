@@ -34,3 +34,21 @@ export async function convertToMp3(input: string, output: string): Promise<boole
     const result = await tryExec('ffmpeg', ['-y', '-v', 'error', '-i', input, '-c:a', 'libmp3lame', '-q:a', '4', output]);
     return result !== null;
 }
+
+export async function createSilence(output: string, seconds: number): Promise<boolean> {
+    const result = await tryExec('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', seconds.toFixed(2), '-c:a', 'libmp3lame', output]);
+    return result !== null;
+}
+
+export async function concatAudio(inputs: string[], output: string): Promise<boolean> {
+    if (!inputs.length) return false;
+    const list = `${output}.concat.txt`;
+    const { writeFile, unlink } = await import('node:fs/promises');
+    try {
+        await writeFile(list, inputs.map((file) => `file '${file.replace(/'/g, "'\''")}'`).join('\n'), 'utf8');
+        const result = await tryExec('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', output]);
+        return result !== null;
+    } finally {
+        await unlink(list).catch(() => undefined);
+    }
+}

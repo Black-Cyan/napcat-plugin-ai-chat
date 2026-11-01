@@ -23,6 +23,7 @@ export class ProviderRegistry {
 
     adapter(profile: ProviderProfile): ProviderAdapter {
         if (profile.type === 'openai') return new OpenAIAdapter();
+        if (profile.type === 'fishaudio') throw new Error('Fish Audio 仅支持语音合成与转写，不能用于文本对话');
         if (profile.type === 'anthropic') return new AnthropicAdapter();
         return new GoogleAdapter();
     }

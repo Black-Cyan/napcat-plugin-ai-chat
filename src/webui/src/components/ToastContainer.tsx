@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { dismissToast, useToasts, type Toast } from '../hooks/useToast'
 import { IconCheck, IconX, IconInfo, IconAlert } from './icons'
 
+const RING_LENGTH = 2 * Math.PI * 10
+
 const toneIcon = {
     success: <IconCheck size={15} />,
     error: <IconX size={15} />,
@@ -54,10 +56,20 @@ function ToastItem({ toast }: { toast: Toast }) {
         <div className="toast-content">
             <span className="toast-icon">{toneIcon[toast.type]}</span>
             <span className="toast-message">{toast.message}</span>
+            {!toast.hiding && <svg className="toast-ring" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+            <circle className="toast-ring-track" cx="11" cy="11" r="10" fill="none" strokeWidth="2" />
+            <circle
+                className="toast-ring-progress"
+                cx="11" cy="11" r="10" fill="none" strokeWidth="2"
+                strokeLinecap="round"
+                strokeDasharray={RING_LENGTH}
+                strokeDashoffset={RING_LENGTH * (1 - progress / 100)}
+                transform="rotate(-90 11 11)"
+            />
+        </svg>}
             <button type="button" className="toast-close" aria-label="关闭通知" onClick={() => dismissToast(toast.id)}>
                 <IconX size={13} />
             </button>
         </div>
-        {!toast.hiding && <div className="toast-track"><span className="toast-bar" style={{ width: `${progress}%` }} /></div>}
     </div>
 }

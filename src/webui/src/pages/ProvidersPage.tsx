@@ -5,6 +5,7 @@ import type { ProviderProfile, ProviderType } from '../types'
 import { Notice, Badge, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
 import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
 import GoogleModelField from '../components/GoogleModelField'
+import { autoUsageLabels, capabilitiesOf, isSpeechOnly } from '../utils/capabilities'
 
 const blank = (): ProviderProfile => ({
     id: crypto.randomUUID(), name: '新模型', type: 'openai', model: '', apiKey: '', baseUrl: '',
@@ -99,33 +100,95 @@ export default function ProvidersPage() {
                 </div>
             </>}
         >
-            <div className="form-grid">
-                <Field label="配置名称"><Input value={current.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
-                <Field label="协议"><Select value={current.type} onChange={(e) => patch({ type: e.target.value as ProviderType })}><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google">Google Gemini</option></Select></Field>
-                {current.type === 'google'
-                    ? <GoogleModelField key={current.id} profile={current} onPatch={patch} />
-                    : <Field label="模型名称" wide><Input value={current.model} onChange={(e) => patch({ model: e.target.value })} placeholder="例如 gpt-4o-mini / claude-sonnet-4-5" /></Field>}
-                {current.type === 'google' ? <details className="field-wide">
-                    <summary>高级：自定义兼容服务端点（可选）</summary>
-                    <Field label="API 地址" hint="官方 Gemini API 无需填写。仅在明确使用代理时填写 v1beta 协议根地址。"><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>
-                </details> : <Field label="API 地址" hint="填写协议根地址；留空使用官方默认值。" wide><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>}
-                <Field label="API 密钥" wide><Input type="password" value={current.apiKey} onChange={(e) => patch({ apiKey: e.target.value })} autoComplete="new-password" /></Field>
-                <Field label="实际上下文上限"><NumberInput value={current.contextWindow} onChange={(e) => patch({ contextWindow: Number(e.target.value) })} /></Field>
-                <Field label="最大输出 token"><NumberInput value={current.maxOutputTokens} onChange={(e) => patch({ maxOutputTokens: Number(e.target.value) })} /></Field>
-                <Field label="温度"><NumberInput min="0" max="2" step="0.1" value={current.temperature} onChange={(e) => patch({ temperature: Number(e.target.value) })} /></Field>
+            <div className="form-section">
+                <h4 className="form-section-title">连接</h4>
+                <div className="form-grid">
+                    <Field label="配置名称"><Input value={current.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
+                    <Field label="协议" hint="协议决定可用能力与表单字段；Fish Audio 仅用于语音合成与转写。">
+                        <Select value={current.type} onChange={(e) => {
+                            const type = e.target.value as ProviderType
+                            if (type === 'fishaudio') {
+                                patch({ type, model: current.model.startsWith('s') || current.model === 'drama-3' ? current.model : 's2.1-pro', sttModel: current.sttModel ?? 'transcribe-1-pro', tts: false, speechRecognition: false })
+                            } else patch({ type })
+                        }}>
+                            <option value="openai">OpenAI 兼容</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google Gemini</option>
+                            <option value="fishaudio">Fish Audio</option>
+                        </Select>
+                    </Field>
+                    {current.type !== 'google' && <Field label="API 地址" hint={current.type === 'fishaudio' ? '留空使用 api.fish.audio。' : '留空使用官方默认地址。'} wide>
+                        <Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} />
+                    </Field>}
+                    <Field label="API 密钥" hint="仅写入本地配置，读取接口不返回明文。" wide>
+                        <Input type="password" value={current.apiKey} onChange={(e) => patch({ apiKey: e.target.value })} autoComplete="new-password" />
+                    </Field>
+                </div>
             </div>
-            <Toggle checked={current.vision} onChange={(vision) => patch({ vision })} label="支持图片理解" />
-            <Toggle checked={current.toolCalling} onChange={(toolCalling) => patch({ toolCalling })} label="支持工具调用" />
-            <Toggle checked={current.structuredOutput} onChange={(structuredOutput) => patch({ structuredOutput })} label="支持原生结构化输出" />
-            <Toggle checked={current.tts} onChange={(tts) => patch({ tts })} label="声明为 TTS 语音合成模型" />
-            <Toggle checked={current.speechRecognition} onChange={(speechRecognition) => patch({ speechRecognition })} label="声明为语音理解（转写）模型" />
-            {(current.tts || current.speechRecognition) && current.type === 'anthropic' && <p className="muted">Anthropic 没有音频接口，请改用 OpenAI 或 Google 配置提供语音能力。</p>}
-            {current.tts && <div className="form-grid compact-top">
-                <Field label="音色（voice）" hint="留空用供应商默认：OpenAI alloy，Gemini Kore。">
-                    <Input value={current.ttsVoice ?? ''} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy / Kore" />
-                </Field>
-                <Field label="语速"><NumberInput min="0.25" max="4" step="0.05" value={current.ttsSpeed ?? 1} onChange={(e) => patch({ ttsSpeed: Number(e.target.value) })} /></Field>
+
+            <div className="form-section">
+                <h4 className="form-section-title">模型</h4>
+                <div className="form-grid">
+                    {current.type === 'google' && <GoogleModelField key={current.id} profile={current} onPatch={patch} />}
+                    {current.type !== 'google' && current.type !== 'fishaudio' && <Field label="模型名称" hint="按名称自动识别语音模型，例如 tts-1、whisper-1。" wide>
+                        <Input value={current.model} onChange={(e) => patch({ model: e.target.value })} placeholder="例如 gpt-4o-mini / claude-sonnet-4-5" />
+                    </Field>}
+                    {current.type === 'fishaudio' && <>
+                        <Field label="模型" hint="合成与转写模型共用同一字段，按模型类别自动判定用途。" wide>
+                            <Select value={current.model} onChange={(e) => patch({ model: e.target.value })}>
+                                <optgroup label="语音合成">
+                                    <option value="s2.1-pro">s2.1-pro</option>
+                                    <option value="s2.1-pro-free">s2.1-pro-free（免费档）</option>
+                                    <option value="drama-3">drama-3</option>
+                                    <option value="s2-pro">s2-pro</option>
+                                    <option value="s1">s1</option>
+                                </optgroup>
+                                <optgroup label="语音转写">
+                                    <option value="transcribe-1-pro">transcribe-1-pro</option>
+                                    <option value="transcribe-1">transcribe-1</option>
+                                </optgroup>
+                            </Select>
+                        </Field>
+                    </>}
+                    {current.type === 'google' && <details className="field-wide">
+                        <summary>自定义兼容服务端点</summary>
+                        <Field label="API 地址" hint="仅在明确使用代理时填写 v1beta 协议根地址。"><Input value={current.baseUrl ?? ''} onChange={(e) => patch({ baseUrl: e.target.value })} /></Field>
+                    </details>}
+                    {current.type !== 'fishaudio' && <>
+                        <Field label="实际上下文上限" hint="仅用于计算上下文预算。"><NumberInput value={current.contextWindow} onChange={(e) => patch({ contextWindow: Number(e.target.value) })} /></Field>
+                        <Field label="最大输出 token"><NumberInput value={current.maxOutputTokens} onChange={(e) => patch({ maxOutputTokens: Number(e.target.value) })} /></Field>
+                        <Field label="温度"><NumberInput min="0" max="2" step="0.1" value={current.temperature} onChange={(e) => patch({ temperature: Number(e.target.value) })} /></Field>
+                    </>}
+                </div>
+                {autoUsageLabels(current).length > 0 && <div className="usage-badges">
+                    {autoUsageLabels(current).map((label) => <Badge key={label} tone="neutral">{label}</Badge>)}
+                </div>}
+            </div>
+
+            {((current.type === 'fishaudio' && !current.model.startsWith('transcribe')) || (current.type !== 'fishaudio' && current.tts)) && <div className="form-section">
+                <h4 className="form-section-title">语音参数</h4>
+                <div className="form-grid">
+                    <Field
+                        label={current.type === 'fishaudio' ? '音色 reference_id' : '音色（voice）'}
+                        hint={current.type === 'fishaudio' ? 'Fish Audio 声音模型 ID，留空使用默认音色。' : '留空用供应商默认：OpenAI alloy，Gemini Kore。'}
+                    >
+                        <Input value={current.ttsVoice ?? ''} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder={current.type === 'fishaudio' ? 'model-id' : 'alloy / Kore'} />
+                    </Field>
+                    <Field label="语速" hint={current.type === 'fishaudio' ? '映射 prosody.speed，1 为原速。' : '1 为原速。'}>
+                        <NumberInput min="0.25" max="4" step="0.05" value={current.ttsSpeed ?? 1} onChange={(e) => patch({ ttsSpeed: Number(e.target.value) })} />
+                    </Field>
+                </div>
             </div>}
+
+            {current.type !== 'fishaudio' && <details className="form-section advanced-overrides">
+                <summary>高级覆盖（能力声明通常无需修改）</summary>
+                <Toggle checked={current.vision} onChange={(vision) => patch({ vision })} label="支持图片理解" hint="允许把图片直接内联给该模型；关闭时改用视觉任务模型转述。" />
+                <Toggle checked={current.toolCalling} onChange={(toolCalling) => patch({ toolCalling })} label="支持工具调用" hint="控制是否在请求中声明工具，关闭后不再提供拍一拍之外的全部工具。" />
+                <Toggle checked={current.structuredOutput} onChange={(structuredOutput) => patch({ structuredOutput })} label="支持原生结构化输出" hint="是否使用供应商的 JSON Schema 响应约束，关闭后退回文本解析。" />
+                <Toggle checked={current.tts} onChange={(tts) => patch({ tts })} label="声明为 TTS 语音合成模型" hint="手动覆盖自动识别；开启后该配置不能再作为聊天或视觉模型。" />
+                <Toggle checked={current.speechRecognition} onChange={(speechRecognition) => patch({ speechRecognition })} label="声明为语音理解（转写）模型" hint="手动覆盖自动识别，用于接收音频并输出转写文本。" />
+                {(current.tts || current.speechRecognition) && current.type === 'anthropic' && <p className="muted">Anthropic 没有音频接口，请改用其他协议。</p>}
+            </details>}
         </SidePanel>}
     </div>
 }
@@ -133,7 +196,7 @@ export default function ProvidersPage() {
 function ProviderSelect({ value, providers, onChange, nullable = false, excludeTts = false }: {
     value: string | null; providers: ProviderProfile[]; onChange: (value: string | null) => void; nullable?: boolean; excludeTts?: boolean
 }) {
-    const options = excludeTts ? providers.filter((provider) => !provider.tts) : providers
+    const options = excludeTts ? providers.filter((provider) => !isSpeechOnly(provider)) : providers
     return <Select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
         {nullable && <option value="">继承聊天模型</option>}
         {!nullable && !value && <option value="">请选择默认模型</option>}

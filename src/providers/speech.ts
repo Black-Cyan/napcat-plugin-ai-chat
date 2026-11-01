@@ -9,6 +9,7 @@ export interface SpeechAudio {
 }
 
 const OPENAI_ROOT = 'https://api.openai.com/v1';
+const FISH_ROOT = 'https://api.fish.audio';
 const TRANSCRIBE_PROMPT = '请把这段语音完整转写为文字，只输出转写内容本身，不要解释、翻译或评价；听不清的部分用"…"表示。';
 
 function openAiRoot(profile: ProviderProfile): string {
@@ -39,7 +40,55 @@ async function postSpeech(profile: ProviderProfile, url: string, init: RequestIn
     }
 }
 
-export async function synthesizeSpeech(profile: ProviderProfile, text: string): Promise<SpeechAudio> {
+function fishRoot(profile: ProviderProfile): string {
+    return (profile.baseUrl?.trim() || FISH_ROOT).replace(/\/+$/, '');
+}
+
+async function synthesizeFishAudio(profile: ProviderProfile, text: string, emphasis = false): Promise<SpeechAudio> {
+    const response = await postSpeech(profile, `${fishRoot(profile)}/v1/tts`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${profile.apiKey}`,
+            model: profile.model || 's2.1-pro',
+        },
+        body: JSON.stringify({
+            text,
+            ...(profile.ttsVoice?.trim() ? { reference_id: profile.ttsVoice.trim() } : {}),
+            format: 'mp3',
+            prosody: {
+                speed: Math.min(2, Math.max(0.5, (profile.ttsSpeed ?? 1) * (emphasis ? 0.95 : 1))),
+                volume: emphasis ? 2 : 0,
+                normalize_loudness: true,
+            },
+            normalize: true,
+        }),
+    }, '语音合成');
+    return { buffer: Buffer.from(await response.arrayBuffer()), mime: 'audio/mpeg', extension: '.mp3' };
+}
+
+function fishTranscribeModel(profile: ProviderProfile): string {
+    if (profile.model?.trim().startsWith('transcribe')) return profile.model.trim();
+    return profile.sttModel?.trim() || 'transcribe-1-pro';
+}
+
+async function transcribeFishAudio(profile: ProviderProfile, audio: SpeechAudio): Promise<string> {
+    const form = new FormData();
+    form.append('audio', new Blob([new Uint8Array(audio.buffer)], { type: audio.mime }), `voice${audio.extension}`);
+    form.append('ignore_timestamps', 'true');
+    const response = await postSpeech(profile, `${fishRoot(profile)}/v1/asr`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${profile.apiKey}`, model: fishTranscribeModel(profile) },
+        body: form,
+    }, '语音转写');
+    const payload = await response.json() as { text?: string };
+    const text = payload.text?.trim();
+    if (!text) throw new ProviderError('语音转写未返回文本', 502, false, false);
+    return text;
+}
+
+export async function synthesizeSpeech(profile: ProviderProfile, text: string, options: { emphasis?: boolean } = {}): Promise<SpeechAudio> {
+    if (profile.type === 'fishaudio') return synthesizeFishAudio(profile, text, options.emphasis === true);
     if (profile.type === 'openai') {
         const response = await postSpeech(profile, `${openAiRoot(profile)}/audio/speech`, {
             method: 'POST',
@@ -86,6 +135,7 @@ export async function synthesizeSpeech(profile: ProviderProfile, text: string): 
 }
 
 export async function transcribeSpeech(profile: ProviderProfile, audio: SpeechAudio): Promise<string> {
+    if (profile.type === 'fishaudio') return transcribeFishAudio(profile, audio);
     if (profile.type === 'openai') {
         try {
             return await transcribeViaWhisperEndpoint(profile, audio);

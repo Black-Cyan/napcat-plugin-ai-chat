@@ -2021,14 +2021,6 @@ body::before {
     grid-template-columns: 1fr;
 }
 
-.side-panel .panel.p-3 {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-}
 
 /* 操作栏不再悬浮遮挡内容 */
 .sticky-save {
@@ -2162,7 +2154,7 @@ body::before {
 /* Toast：倒计时进度条与生命周期同步，悬停暂停 */
 .toast-region {
     position: fixed;
-    top: 16px;
+    bottom: 16px;
     right: 16px;
     z-index: 120;
     display: flex;
@@ -2229,21 +2221,22 @@ body::before {
     color: var(--ink);
 }
 
-.toast-track {
-    height: 3px;
-    background: var(--line-subtle);
+.toast-ring {
+    flex: 0 0 auto;
+    margin-left: 4px;
 }
 
-.toast-bar {
-    display: block;
-    height: 100%;
-    background: var(--accent);
-    transition: none;
+.toast-ring-track {
+    stroke: var(--line-subtle);
 }
 
-.toast-success .toast-bar { background: var(--success); }
-.toast-error .toast-bar { background: var(--danger); }
-.toast-warning .toast-bar { background: var(--warning); }
+.toast-ring-progress {
+    stroke: var(--accent);
+}
+
+.toast-success .toast-ring-progress { stroke: var(--success); }
+.toast-error .toast-ring-progress { stroke: var(--danger); }
+.toast-warning .toast-ring-progress { stroke: var(--warning); }
 
 .toast-enter {
     animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2254,22 +2247,22 @@ body::before {
 }
 
 @keyframes toast-in {
-    from { transform: translateY(-8px); opacity: 0; }
+    from { transform: translateY(8px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes toast-out {
     from { transform: translateY(0); opacity: 1; }
-    to { transform: translateY(-8px); opacity: 0; }
+    to { transform: translateY(8px); opacity: 0; }
 }
 
-/* 面板内的嵌套区块不再渲染成实心白卡 */
-.side-panel .panel:not(.p-3) {
-    background: var(--surface-subtle);
-    box-shadow: none;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+@media (prefers-reduced-motion: reduce) {
+    .toast-enter,
+    .toast-exit {
+        animation: none;
+    }
 }
+
 
 /* 侧边面板内容允许滚动 */
 .side-panel-body {
@@ -2317,4 +2310,238 @@ body::before {
 
 .dropzone-input {
     display: none;
+}
+
+.form-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.form-section-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--ink);
+}
+
+.advanced-overrides {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line-subtle);
+}
+
+.advanced-overrides summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.advanced-overrides[open] summary {
+    margin-bottom: 6px;
+}
+
+.usage-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* Side Panel：子项不压缩，超出时整体滚动 */
+.side-panel-body > * {
+    flex: 0 0 auto;
+}
+
+.side-panel-body .panel .panel-body {
+    padding: 0;
+}
+
+.side-panel .memory-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.side-panel .memory-filters {
+    width: 100%;
+    display: flex;
+}
+
+.side-panel .memory-filter {
+    flex: 1;
+    justify-content: center;
+}
+
+.side-panel .memory-search {
+    width: 100%;
+    max-width: none;
+    flex: 1 1 auto;
+}
+
+.side-panel .memory-address-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.side-panel .memory-address-editor .input {
+    width: 100%;
+    flex: none;
+}
+
+.side-panel .memory-address-hint {
+    grid-column: 1 / -1;
+}
+
+.side-panel .memory-profile-stats {
+    width: 100%;
+    margin-left: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    text-align: left;
+}
+
+.side-panel .memory-item,
+.side-panel .memory-list {
+    width: 100%;
+}
+
+/* 访问控制：禁止横向溢出，成员标题定宽循环滚动 */
+.side-panel,
+.side-panel .resource-list,
+.side-panel .two-column {
+    overflow-x: hidden;
+}
+
+.side-panel .resource-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.member-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.member-row .badge,
+.member-row .button {
+    flex: 0 0 auto;
+}
+
+.marquee {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.marquee-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.marquee-inner {
+    display: inline-flex;
+    gap: 24px;
+    white-space: nowrap;
+    animation: marquee-scroll 9s linear infinite;
+    will-change: transform;
+}
+
+.marquee:hover .marquee-inner {
+    animation-play-state: paused;
+}
+
+@keyframes marquee-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-50% - 12px)); }
+}
+
+/* 联系人/手动添加区域取消多余圆角 */
+.side-panel .rounded,
+.side-panel .panel,
+.side-panel .two-column .resource-row {
+    border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .marquee-inner {
+        animation: none;
+    }
+}
+
+/* Side Panel 内的 Panel 只是内容分区，不再渲染成玻璃里的白卡 */
+.side-panel .panel,
+.side-panel .panel.p-3 {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.side-panel .panel-heading {
+    padding: 0;
+    border: 0;
+}
+
+.side-panel .panel-body {
+    padding: 0;
+}
+
+.side-panel .panel-heading h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+}
+
+.side-panel .panel-heading p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+/* 多个分区之间用细分隔线，而不是卡片底色 */
+.side-panel .panel + .panel {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-subtle);
+}
+
+/* 记忆与消息正文的排版 */
+.side-panel .memory-content {
+    line-height: 1.75;
+    letter-spacing: 0.005em;
+}
+
+.side-panel .message-text {
+    line-height: 1.7;
+}
+
+.side-panel .message-bubble {
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
+}
+
+.side-panel .message-bubble.assistant {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }

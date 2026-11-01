@@ -7,6 +7,8 @@ import { pcmToWav, synthesizeSpeech, transcribeSpeech } from '../providers/speec
 import { ProviderRegistry } from '../providers/registry';
 import { pluginState } from '../core/state';
 import { createDefaultConfig } from '../config';
+import { flattenMarkup, hasFineControl, parseFishMarkup } from '../providers/fish-markup';
+import { concatAudio, createSilence } from '../services/speech/ffmpeg';
 import { ToolBroker } from '../services/chat/tool-broker';
 import type { Store } from '../database/store';
 import type { ChatMessage, Conversation, ProviderProfile } from '../types';
@@ -15,6 +17,8 @@ vi.mock('../services/speech/ffmpeg', () => ({
     probeDurationSeconds: vi.fn().mockResolvedValue(null),
     convertForQQ: vi.fn().mockResolvedValue(false),
     convertToMp3: vi.fn().mockResolvedValue(false),
+    createSilence: vi.fn().mockResolvedValue(true),
+    concatAudio: vi.fn().mockResolvedValue(true),
 }));
 
 const conversation: Conversation = {
@@ -96,8 +100,11 @@ describe('speech synthesis', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('requires a profile declared as TTS', async () => {
-        await expect(service([profile({ tts: false })]).synthesize(conversation, '你好')).rejects.toThrow('TTS');
+    it('rejects chat models that are not speech-capable', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(service([profile({ model: 'gpt-4o-mini', tts: false })]).synthesize(conversation, '你好')).rejects.toThrow('TTS');
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('wraps Google PCM output into a WAV container', async () => {
@@ -255,5 +262,88 @@ describe('send_voice tool availability', () => {
         const disabled: Conversation = { ...conversation, override: { speech: { sendVoice: false } } };
         const names = broker(true).definitions(true, disabled).map((tool) => tool.name);
         expect(names).not.toContain('send_voice');
+    });
+});
+
+describe('Fish Audio protocol', () => {
+    it('sends TTS requests with the model header and prosody settings', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(Buffer.from('mp3'), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        const audio = await synthesizeSpeech(profile({
+            type: 'fishaudio', model: 's2.1-pro-free', ttsVoice: 'voice-model-id', ttsSpeed: 1.2,
+        }), '你好');
+        expect(audio.mime).toBe('audio/mpeg');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toBe('https://api.fish.audio/v1/tts');
+        expect(init.headers.model).toBe('s2.1-pro-free');
+        const body = JSON.parse(String(init.body));
+        expect(body).toMatchObject({ text: '你好', reference_id: 'voice-model-id', format: 'mp3' });
+        expect(body.prosody.speed).toBe(1.2);
+    });
+
+    it('sends ASR requests as multipart with the transcribe model header', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ text: '转写内容' }), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        const text = await transcribeSpeech(profile({ type: 'fishaudio', model: 'transcribe-1-pro' }), {
+            buffer: Buffer.from('audio'), mime: 'audio/mpeg', extension: '.mp3',
+        });
+        expect(text).toBe('转写内容');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(String(url)).toBe('https://api.fish.audio/v1/asr');
+        expect(init.headers.model).toBe('transcribe-1-pro');
+        expect(init.body).toBeInstanceOf(FormData);
+    });
+});
+
+describe('Fish fine-grained markup', () => {
+    it('parses pauses and emphasis without leaving markers in the spoken text', () => {
+        const segments = parseFishMarkup('晚安啦[停顿 0.5s][加重]今天辛苦你了[/加重]，早点休息');
+        expect(segments).toEqual([
+            { kind: 'speech', text: '晚安啦', emphasis: false },
+            { kind: 'pause', ms: 500 },
+            { kind: 'speech', text: '今天辛苦你了', emphasis: true },
+            { kind: 'speech', text: '，早点休息', emphasis: false },
+        ]);
+        expect(hasFineControl(segments)).toBe(true);
+        expect(flattenMarkup(segments)).toBe('晚安啦……今天辛苦你了，早点休息');
+        expect(hasFineControl(parseFishMarkup('只是普通的一句话'))).toBe(false);
+    });
+
+    it('synthesizes marked text in segments and stitches real silence', async () => {
+        const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(Buffer.from('mp3'), { status: 200 })));
+        vi.stubGlobal('fetch', fetchMock);
+        const result = await service([profile({ type: 'fishaudio', model: 's2.1-pro' })])
+            .synthesize(conversation, '晚安[停顿 1s][加重]好好休息[/加重]');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(createSilence).toHaveBeenCalledWith(expect.stringContaining('-part-'), 1);
+        expect(concatAudio).toHaveBeenCalled();
+        const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init.body)));
+        expect(bodies[0].text).toBe('晚安');
+        expect(bodies[1].text).toBe('好好休息');
+        expect(bodies[1].prosody.volume).toBe(2);
+        expect(bodies.every((body) => !body.text.includes('['))).toBe(true);
+        expect(result.path).toContain('.mp3');
+    });
+
+    it('falls back to a single request with ellipses when ffmpeg is unavailable', async () => {
+        vi.mocked(createSilence).mockResolvedValueOnce(false);
+        const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(Buffer.from('mp3'), { status: 200 })));
+        vi.stubGlobal('fetch', fetchMock);
+        await service([profile({ type: 'fishaudio', model: 's2.1-pro' })]).synthesize(conversation, '晚安[停顿]早点睡');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+        expect(body.text).toBe('晚安……早点睡');
+    });
+});
+
+describe('markup handling for non-Fish providers', () => {
+    it('strips pause and emphasis markers before calling other TTS providers', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(Buffer.from('mp3'), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        await service([profile({ model: 'tts-1' })]).synthesize(conversation, '晚安[停顿 1s][加重]早点休息[/加重]');
+        const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+        expect(body.input).not.toContain('[停顿');
+        expect(body.input).not.toContain('[加重');
+        expect(body.input).toContain('早点休息');
     });
 });

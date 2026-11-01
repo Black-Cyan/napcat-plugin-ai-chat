@@ -21,7 +21,7 @@ const behaviorSchema = z.object({
 const providerSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
-    type: z.enum(['openai', 'anthropic', 'google']),
+    type: z.enum(['openai', 'anthropic', 'google', 'fishaudio']),
     model: z.string().min(1),
     apiKey: z.string(),
     baseUrl: z.string().optional(),
@@ -31,6 +31,11 @@ const providerSchema = z.object({
     vision: z.boolean(),
     toolCalling: z.boolean(),
     structuredOutput: z.boolean(),
+    tts: z.boolean().optional(),
+    speechRecognition: z.boolean().optional(),
+    ttsVoice: z.string().max(64).optional(),
+    ttsSpeed: z.number().min(0.25).max(4).optional(),
+    sttModel: z.string().max(64).optional(),
 });
 
 export const sessionOverrideSchema = z.object({

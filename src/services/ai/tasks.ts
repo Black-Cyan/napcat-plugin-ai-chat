@@ -3,6 +3,7 @@ import { ProviderRegistry } from '../../providers/registry';
 import { textMessage, textPart, type ProviderContentPart, type ProviderMessage } from '../../providers/types';
 import type { Conversation, ProviderProfile } from '../../types';
 import { pluginState } from '../../core/state';
+import { isSpeechOnly } from '../../providers/capabilities';
 
 export const summaryResultSchema = z.object({ summary: z.string().min(1).max(12000) });
 export const memoryResultSchema = z.object({
@@ -59,7 +60,7 @@ export class AITasks {
             ?? conversation?.override.providerProfileId
             ?? config.defaultProviderId;
         const profile = this.providers.profile(id);
-        if (profile.tts) throw new Error(`模型 ${profile.name} 已声明为 TTS 语音合成模型，只能用于语音合成，不能承担文本或视觉任务`);
+        if (isSpeechOnly(profile)) throw new Error(`模型 ${profile.name} 仅支持语音能力，不能承担文本或视觉任务`);
         if (kind === 'vision' && !profile.vision) throw new Error('当前模型未启用视觉能力');
         return profile;
     }

@@ -17,6 +17,7 @@ import { ResponseGuard } from '../security/response-guard';
 import { AccessControlService } from '../security/access-control-service';
 import { safeDiagnostic } from '../../core/diagnostics';
 import { runtimeLogs } from '../../core/log-buffer';
+import { isSpeechOnly } from '../../providers/capabilities';
 
 export class ChatOrchestrator {
     private readonly backgroundChains = new Map<string, Promise<void>>();
@@ -67,7 +68,7 @@ export class ChatOrchestrator {
                 return;
             }
             const profile = this.providers.profile(effectiveProviderId(conversation));
-            if (profile.tts) throw new Error(`模型 ${profile.name} 已声明为 TTS 语音合成模型，不能作为聊天模型，请在模型配置中更换主聊天模型`);
+            if (isSpeechOnly(profile)) throw new Error(`模型 ${profile.name} 仅支持语音能力，不能作为聊天模型，请在模型配置中更换主聊天模型`);
             messages = await this.speech.transcribeMessages(conversation, messages);
             const aliases = new ParticipantAliases(messages);
             // 图片理解路径由 StickerService.imageParts 按视觉任务配置决定。
@@ -76,6 +77,7 @@ export class ChatOrchestrator {
                 : { parts: [], annotations: [] };
             let reduction = 0;
             let sideEffects = false;
+            let deliveredByTool = false;
             let composed = await this.context.compose(conversation, messages, aliases, profile, images, reduction);
             const catalog = await this.tools.catalog();
             if (catalog && composed.messages[0]) composed.messages[0].content.push(textPart(`\n${catalog}`));
@@ -131,6 +133,7 @@ export class ChatOrchestrator {
                         }
                         const call = response.toolCalls[index];
                         const result = await this.tools.execute(conversation, messages, aliases, batchId, `${reduction}:${providerMessages.length}:${index}`, call);
+                        if (result.final) deliveredByTool = true;
                         if (pluginState.config.debug) {
                             runtimeLogs.add('debug', `执行工具 [${call.name}] (${conversation.title})`, 'tool', {
                                 tool: call.name,
@@ -146,6 +149,15 @@ export class ChatOrchestrator {
                 }
                 if (!this.isAllowed(conversation)) {
                     await this.store.finishBatch(batchId, 'skipped');
+                    return;
+                }
+                // send_voice 已经发出语音或回退文字时，吞掉模型习惯性追加的确认语。
+                if (deliveredByTool) {
+                    await this.store.finishBatch(batchId, 'completed');
+                    await this.participation.noteOutcome(conversation, messages, true, decision.botOnly);
+                    await this.store.markMemoriesUsed(composed.memories.map((memory) => memory.id));
+                    pluginState.incrementProcessed(true);
+                    this.runBackgroundTasks(conversation, messages, aliases);
                     return;
                 }
                 const safeText = this.responseGuard.sanitize(response.text, conversation, composed.memories);
