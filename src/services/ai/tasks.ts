@@ -59,6 +59,7 @@ export class AITasks {
             ?? conversation?.override.providerProfileId
             ?? config.defaultProviderId;
         const profile = this.providers.profile(id);
+        if (profile.tts) throw new Error(`模型 ${profile.name} 已声明为 TTS 语音合成模型，只能用于语音合成，不能承担文本或视觉任务`);
         if (kind === 'vision' && !profile.vision) throw new Error('当前模型未启用视觉能力');
         return profile;
     }

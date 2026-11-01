@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useResource } from '../hooks/useResource'
 import { apiData, postJson } from '../utils/api'
-import type { BehaviorConfig, ChatMessage, Conversation, PluginConfig, PromptProfile, StickerConfig } from '../types'
+import type { BehaviorConfig, ChatMessage, Conversation, PluginConfig, PromptProfile, SpeechConfig, StickerConfig } from '../types'
 import { Badge, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
 
 export default function ConversationsPage() {
@@ -17,6 +17,7 @@ export default function ConversationsPage() {
     const [behaviorOverrides, setBehaviorOverrides] = useState<Partial<BehaviorConfig>>({})
     const [vision, setVision] = useState<boolean | undefined>(undefined)
     const [stickerOverrides, setStickerOverrides] = useState<Partial<StickerConfig>>({})
+    const [speechOverrides, setSpeechOverrides] = useState<Partial<SpeechConfig> & { sendVoice?: boolean }>({})
     const [messages, setMessages] = useState<ChatMessage[] | null>(null)
     const [notice, setNotice] = useState('')
     const choose = (conversation: Conversation) => {
@@ -27,6 +28,7 @@ export default function ConversationsPage() {
         setBehaviorOverrides(conversation.override.behavior ?? {})
         setVision(conversation.override.vision)
         setStickerOverrides(conversation.override.stickers ?? {})
+        setSpeechOverrides(conversation.override.speech ?? {})
         setMessages(null); setNotice('')
     }
     const save = async (reset = false) => {
@@ -36,7 +38,7 @@ export default function ConversationsPage() {
                 title, enabled: undefined, behavior: {}, vision: undefined, stickers: {}, promptProfileId: null, providerProfileId: null,
             } : {
                 title, enabled, promptProfileId: promptId, providerProfileId: providerId,
-                behavior: behaviorOverrides, vision, stickers: stickerOverrides,
+                behavior: behaviorOverrides, vision, stickers: stickerOverrides, speech: speechOverrides,
             })
             setNotice(reset ? '已恢复继承全局配置' : '会话配置已保存'); await refresh()
         } catch (reason) { setNotice(reason instanceof Error ? reason.message : '保存失败') }
@@ -77,6 +79,8 @@ export default function ConversationsPage() {
                     <Toggle checked={vision ?? true} onChange={(value) => setVision(value)} label="允许理解图片内容" />
                     <Toggle checked={stickerOverrides.autoCollect ?? config?.stickers.autoCollect ?? true} onChange={(autoCollect) => setStickerOverrides({ ...stickerOverrides, autoCollect })} label="允许此会话自动收藏表情" />
                     <Toggle checked={stickerOverrides.autoSend ?? config?.stickers.autoSend ?? true} onChange={(autoSend) => setStickerOverrides({ ...stickerOverrides, autoSend })} label="允许此会话自动发送表情" />
+                    <Toggle checked={speechOverrides.transcribe ?? config?.speech.transcribe ?? true} onChange={(transcribe) => setSpeechOverrides({ ...speechOverrides, transcribe })} label="允许此会话转写语音消息" />
+                    <Toggle checked={speechOverrides.sendVoice ?? true} onChange={(sendVoice) => setSpeechOverrides({ ...speechOverrides, sendVoice })} label="允许此会话发送语音" />
                     <div className="button-row"><Button variant="primary" onClick={() => void save()}>保存会话配置</Button><Button onClick={() => void save(true)}>恢复全局继承</Button></div>
                 </Panel>
                 <Panel title="原始消息" description="按需读取最近 500 条原始记录，仅用于认证后的审计管理，不会跨会话注入。" actions={<Button onClick={() => void loadMessages()}>读取最近 500 条</Button>}>

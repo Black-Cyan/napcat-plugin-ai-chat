@@ -45,7 +45,19 @@ export class Database {
         if (version < 3) await this.migrateV3(version);
         if (version < 4) await this.migrateV4();
         if (version < 5) await this.migrateV5();
-        await this.setMetadata('schema_version', '5');
+        if (version < 6) await this.migrateV6();
+        await this.setMetadata('schema_version', '6');
+    }
+
+    private async migrateV6(): Promise<void> {
+        // Voice transcripts are cached per conversation so private-chat audio never leaks across sessions.
+        await this.db.schema.createTable('speech_transcripts').ifNotExists()
+            .addColumn('conversation_id', 'varchar(64)', (c) => c.notNull())
+            .addColumn('sha256', 'varchar(64)', (c) => c.notNull())
+            .addColumn('transcript', 'text', (c) => c.notNull())
+            .addColumn('created_at', 'bigint', (c) => c.notNull())
+            .addPrimaryKeyConstraint('speech_transcripts_pk', ['conversation_id', 'sha256'])
+            .execute();
     }
 
     private async migrateV5(): Promise<void> {

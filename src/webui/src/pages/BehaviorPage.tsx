@@ -1,12 +1,13 @@
 import { useConfig } from '../hooks/useConfig'
 import { Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Toggle } from '../components/ui'
-import type { BehaviorConfig, StickerConfig } from '../types'
+import type { BehaviorConfig, SpeechConfig, StickerConfig } from '../types'
 
 export default function BehaviorPage() {
     const { config, setConfig, saving, error, notice, save } = useConfig()
     if (!config) return <><ErrorNotice message={error} /><Loading label="正在读取行为配置" /></>
     const behavior = (patch: Partial<BehaviorConfig>) => setConfig({ ...config, behavior: { ...config.behavior, ...patch } })
     const stickers = (patch: Partial<StickerConfig>) => setConfig({ ...config, stickers: { ...config.stickers, ...patch } })
+    const speech = (patch: Partial<SpeechConfig>) => config && setConfig({ ...config, speech: { ...config.speech, ...patch } })
     return <div className="page-stack">
         <ErrorNotice message={error} />{notice && <div className="notice">{notice}</div>}
         <Panel title="参与对话的方式" description="参与度只决定何时说话；人格与语气由提示词方案控制。">
@@ -46,6 +47,15 @@ export default function BehaviorPage() {
                 <Field label="不收藏冷却（天）" hint="判定为不值得收藏的图片在冷却期内不再送模型评估；0 表示每次都重新评估，不安全内容永久跳过。">
                     <NumberInput min="0" max="365" value={config.stickers.rejectionCooldownDays} onChange={(e) => stickers({ rejectionCooldownDays: Number(e.target.value) })} />
                 </Field>
+            </div>
+        </Panel>
+        <Panel title="语音" description="配置 TTS 模型后会自动提供 send_voice 工具，无需额外开关；会话里可单独禁用。转写结果只进入原会话，不跨会话共享。">
+            <Toggle checked={config.speech.transcribe} onChange={(transcribe) => speech({ transcribe })} label="自动转写收到的语音消息" />
+            <div className="form-grid compact-top">
+                <Field label="语音文本上限（字）"><NumberInput min="1" max="5000" value={config.speech.maxTtsTextLength} onChange={(e) => speech({ maxTtsTextLength: Number(e.target.value) })} /></Field>
+                <Field label="合成语音时长上限（秒）"><NumberInput min="1" max="600" value={config.speech.maxTtsSeconds} onChange={(e) => speech({ maxTtsSeconds: Number(e.target.value) })} /></Field>
+                <Field label="转写语音时长上限（秒）"><NumberInput min="1" max="3600" value={config.speech.maxTranscribeSeconds} onChange={(e) => speech({ maxTranscribeSeconds: Number(e.target.value) })} /></Field>
+                <Field label="语音缓存（MB）"><NumberInput min="1" value={config.speech.cacheLimitMb} onChange={(e) => speech({ cacheLimitMb: Number(e.target.value) })} /></Field>
             </div>
         </Panel>
         <Panel title="所有者与运行" description="所有者指令仅在私聊中由确定性解析器处理。">

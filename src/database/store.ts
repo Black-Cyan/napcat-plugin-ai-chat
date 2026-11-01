@@ -766,6 +766,20 @@ export class Store {
         })).execute();
     }
 
+    async getSpeechTranscript(conversationId: string, sha256: string): Promise<string | null> {
+        const row = await this.db.selectFrom('speech_transcripts').select('transcript')
+            .where('conversation_id', '=', conversationId).where('sha256', '=', sha256).executeTakeFirst();
+        return row?.transcript ?? null;
+    }
+
+    async saveSpeechTranscript(conversationId: string, sha256: string, transcript: string): Promise<void> {
+        await this.db.insertInto('speech_transcripts').values({
+            conversation_id: conversationId, sha256, transcript: transcript.slice(0, 8000), created_at: Date.now(),
+        }).onConflict((conflict) => conflict.columns(['conversation_id', 'sha256']).doUpdateSet({
+            transcript: transcript.slice(0, 8000), created_at: Date.now(),
+        })).execute();
+    }
+
     async updateSticker(id: string, patch: { enabled?: boolean; summary?: string }): Promise<void> {
         await this.db.updateTable('stickers').set({
             ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? 1 : 0 }),

@@ -145,3 +145,4 @@ export const stickerSegment = (file: string, summary = '[动画表情]'): Messag
     data: { file, sub_type: 7, summary },
 });
 export const replySegment = (id: string): MessageSegment => ({ type: 'reply', data: { id } });
+export const recordSegment = (file: string): MessageSegment => ({ type: 'record', data: { file } });

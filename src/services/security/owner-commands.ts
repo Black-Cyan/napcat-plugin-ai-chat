@@ -8,6 +8,7 @@ import { normalizeSegments, textSegment } from '../../napcat/message-segments';
 import { getMessage, sendMessage } from '../../napcat/actions';
 import { AccessControlService } from './access-control-service';
 import { StickerService } from '../stickers/sticker-service';
+import { SpeechService } from '../speech/speech-service';
 
 interface PendingDeletion {
     token: string;
@@ -23,6 +24,7 @@ export class OwnerCommandService {
         private readonly store: Store,
         private readonly accessControl: AccessControlService,
         private readonly stickers: StickerService,
+        private readonly speech?: SpeechService,
     ) {}
 
     async handle(incoming: NormalizedIncoming, conversation: Conversation): Promise<boolean> {
@@ -52,8 +54,17 @@ export class OwnerCommandService {
             '#拉黑用户 <QQ> 删除 / #拉黑群 <群号> 删除（需确认）',
             '#确认 <令牌>',
             '回复表情后发送 #收藏表情',
+            '#语音 <文本>（使用 TTS 模型发送语音）',
             '#启用 / #停用',
         ].join('\n');
+
+        if (command === '语音') {
+            const content = args.join(' ').trim();
+            if (!content) return '用法：#语音 <要朗读的文本>';
+            if (!this.speech) return '语音功能未就绪';
+            const result = await this.speech.sendVoice(conversation, content);
+            return result.fallback ? '语音发送失败，已改为文字发送' : '语音已发送';
+        }
 
         if (command === '启用' || command === '停用') {
             pluginState.updateConfig({ enabled: command === '启用' });

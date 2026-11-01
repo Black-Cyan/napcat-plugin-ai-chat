@@ -47,6 +47,15 @@ export const sessionOverrideSchema = z.object({
         cacheLimitMb: z.number().int().min(1),
         rejectionCooldownDays: z.number().min(0).max(365),
     }).partial().optional(),
+    speech: z.object({
+        transcribe: z.boolean(),
+        maxTtsTextLength: z.number().int().min(1).max(5000),
+        maxTtsSeconds: z.number().int().min(1).max(600),
+        maxTranscribeSeconds: z.number().int().min(1).max(3600),
+        maxRecordBytes: z.number().int().min(1024),
+        cacheLimitMb: z.number().int().min(1),
+        sendVoice: z.boolean(),
+    }).partial().optional(),
 });
 
 export const pluginConfigSchema = z.object({
@@ -59,6 +68,8 @@ export const pluginConfigSchema = z.object({
         summary: z.string().nullable(),
         memory: z.string().nullable(),
         vision: z.string().nullable(),
+        tts: z.string().nullable(),
+        speech: z.string().nullable(),
     }),
     providers: z.array(providerSchema),
     database: z.object({
@@ -79,6 +90,15 @@ export const pluginConfigSchema = z.object({
         cacheLimitMb: z.number().int().min(1),
         rejectionCooldownDays: z.number().min(0).max(365),
     }),
+    speech: z.object({
+        transcribe: z.boolean(),
+        sendVoice: z.boolean(),
+        maxTtsTextLength: z.number().int().min(1).max(5000),
+        maxTtsSeconds: z.number().int().min(1).max(600),
+        maxTranscribeSeconds: z.number().int().min(1).max(3600),
+        maxRecordBytes: z.number().int().min(1024),
+        cacheLimitMb: z.number().int().min(1),
+    }),
     stats: z.object({
         processed: z.number().int().nonnegative(),
         replies: z.number().int().nonnegative(),
@@ -93,7 +113,7 @@ export function createDefaultConfig(): PluginConfig {
         commandPrefix: '#',
         owners: [],
         defaultProviderId: null,
-        taskProviders: { summary: null, memory: null, vision: null },
+        taskProviders: { summary: null, memory: null, vision: null, tts: null, speech: null },
         providers: [],
         database: {
             driver: 'sqlite',
@@ -126,6 +146,14 @@ export function createDefaultConfig(): PluginConfig {
             maxImageBytes: 10 * 1024 * 1024,
             cacheLimitMb: 512,
             rejectionCooldownDays: 7,
+        },
+        speech: {
+            transcribe: true,
+            maxTtsTextLength: 300,
+            maxTtsSeconds: 60,
+            maxTranscribeSeconds: 120,
+            maxRecordBytes: 10 * 1024 * 1024,
+            cacheLimitMb: 256,
         },
         stats: { processed: 0, replies: 0, startedAt: Date.now() },
     };

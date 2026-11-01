@@ -73,6 +73,13 @@ export interface StickerDecisionTable {
     evaluated_at: number;
 }
 
+export interface SpeechTranscriptTable {
+    conversation_id: string;
+    sha256: string;
+    transcript: string;
+    created_at: number;
+}
+
 export interface MemoryTable {
     id: string;
     qq: string;
@@ -172,6 +179,7 @@ export interface DatabaseSchema {
     stickers: StickerTable;
     sticker_sightings: StickerSightingTable;
     sticker_decisions: StickerDecisionTable;
+    speech_transcripts: SpeechTranscriptTable;
     tool_executions: ToolExecutionTable;
     app_metadata: MetadataTable;
 }

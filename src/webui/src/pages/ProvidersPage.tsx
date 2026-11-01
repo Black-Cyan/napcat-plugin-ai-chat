@@ -8,7 +8,7 @@ import GoogleModelField from '../components/GoogleModelField'
 const blank = (): ProviderProfile => ({
     id: crypto.randomUUID(), name: '新模型', type: 'openai', model: '', apiKey: '', baseUrl: '',
     contextWindow: 128000, maxOutputTokens: 4096, temperature: 0.7,
-    vision: false, toolCalling: true, structuredOutput: true,
+    vision: false, toolCalling: true, structuredOutput: true, tts: false, speechRecognition: false,
 })
 
 export default function ProvidersPage() {
@@ -37,6 +37,8 @@ export default function ProvidersPage() {
                 summary: config.taskProviders.summary === current.id ? null : config.taskProviders.summary,
                 memory: config.taskProviders.memory === current.id ? null : config.taskProviders.memory,
                 vision: config.taskProviders.vision === current.id ? null : config.taskProviders.vision,
+                tts: config.taskProviders.tts === current.id ? null : config.taskProviders.tts,
+                speech: config.taskProviders.speech === current.id ? null : config.taskProviders.speech,
             },
         })
         setSelected(providers[0]?.id ?? null)
@@ -82,13 +84,24 @@ export default function ProvidersPage() {
                     <Toggle checked={current.vision} onChange={(vision) => patch({ vision })} label="支持图片理解" />
                     <Toggle checked={current.toolCalling} onChange={(toolCalling) => patch({ toolCalling })} label="支持工具调用" />
                     <Toggle checked={current.structuredOutput} onChange={(structuredOutput) => patch({ structuredOutput })} label="支持原生结构化输出" />
+                    <Toggle checked={current.tts} onChange={(tts) => patch({ tts })} label="声明为 TTS 语音合成模型" />
+                    <Toggle checked={current.speechRecognition} onChange={(speechRecognition) => patch({ speechRecognition })} label="声明为语音理解（转写）模型" />
+                    {(current.tts || current.speechRecognition) && current.type === 'anthropic' && <p className="muted">Anthropic 没有音频接口，请改用 OpenAI 或 Google 配置提供语音能力。</p>}
+                    {current.tts && <div className="form-grid compact-top">
+                        <Field label="音色（voice）" hint="留空用供应商默认：OpenAI alloy，Gemini Kore。">
+                            <Input value={current.ttsVoice ?? ''} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy / Kore" />
+                        </Field>
+                        <Field label="语速"><NumberInput min="0.25" max="4" step="0.05" value={current.ttsSpeed ?? 1} onChange={(e) => patch({ ttsSpeed: Number(e.target.value) })} /></Field>
+                    </div>}
                 </Panel>}
                 <Panel title="模型分配" description="辅助任务留空时继承当前会话的聊天模型。">
                     <div className="form-grid">
-                        <Field label="全局默认聊天模型"><ProviderSelect value={config.defaultProviderId} providers={config.providers} onChange={(defaultProviderId) => setConfig({ ...config, defaultProviderId })} /></Field>
-                        <Field label="历史摘要模型"><ProviderSelect nullable value={config.taskProviders.summary} providers={config.providers} onChange={(summary) => setConfig({ ...config, taskProviders: { ...config.taskProviders, summary } })} /></Field>
-                        <Field label="记忆提取模型"><ProviderSelect nullable value={config.taskProviders.memory} providers={config.providers} onChange={(memory) => setConfig({ ...config, taskProviders: { ...config.taskProviders, memory } })} /></Field>
-                        <Field label="图片理解模型"><ProviderSelect nullable value={config.taskProviders.vision} providers={config.providers} onChange={(vision) => setConfig({ ...config, taskProviders: { ...config.taskProviders, vision } })} /></Field>
+                        <Field label="全局默认聊天模型"><ProviderSelect excludeTts value={config.defaultProviderId} providers={config.providers} onChange={(defaultProviderId) => setConfig({ ...config, defaultProviderId })} /></Field>
+                        <Field label="历史摘要模型"><ProviderSelect excludeTts nullable value={config.taskProviders.summary} providers={config.providers} onChange={(summary) => setConfig({ ...config, taskProviders: { ...config.taskProviders, summary } })} /></Field>
+                        <Field label="记忆提取模型"><ProviderSelect excludeTts nullable value={config.taskProviders.memory} providers={config.providers} onChange={(memory) => setConfig({ ...config, taskProviders: { ...config.taskProviders, memory } })} /></Field>
+                        <Field label="图片理解模型"><ProviderSelect excludeTts nullable value={config.taskProviders.vision} providers={config.providers} onChange={(vision) => setConfig({ ...config, taskProviders: { ...config.taskProviders, vision } })} /></Field>
+                        <Field label="语音合成（TTS）模型" hint="请选择 Gemini TTS 系列或 OpenAI 语音模型；TTS 模型不能再作为聊天/视觉模型。"><ProviderSelect nullable value={config.taskProviders.tts} providers={config.providers} onChange={(tts) => setConfig({ ...config, taskProviders: { ...config.taskProviders, tts } })} /></Field>
+                        <Field label="语音转写模型"><ProviderSelect excludeTts nullable value={config.taskProviders.speech} providers={config.providers} onChange={(speech) => setConfig({ ...config, taskProviders: { ...config.taskProviders, speech } })} /></Field>
                     </div>
                 </Panel>
             </div>
@@ -102,12 +115,13 @@ export default function ProvidersPage() {
     </div>
 }
 
-function ProviderSelect({ value, providers, onChange, nullable = false }: {
-    value: string | null; providers: ProviderProfile[]; onChange: (value: string | null) => void; nullable?: boolean
+function ProviderSelect({ value, providers, onChange, nullable = false, excludeTts = false }: {
+    value: string | null; providers: ProviderProfile[]; onChange: (value: string | null) => void; nullable?: boolean; excludeTts?: boolean
 }) {
+    const options = excludeTts ? providers.filter((provider) => !provider.tts) : providers
     return <Select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
         {nullable && <option value="">继承聊天模型</option>}
         {!nullable && !value && <option value="">请选择默认模型</option>}
-        {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+        {options.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
     </Select>
 }

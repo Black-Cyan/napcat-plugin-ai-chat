@@ -7,16 +7,19 @@ import { ParticipantAliases } from './participants';
 import { deleteMessage, setMessageEmojiLike } from '../../napcat/actions';
 import { pluginState } from '../../core/state';
 import { StickerService } from '../stickers/sticker-service';
+import { SpeechService } from '../speech/speech-service';
+import { speechSendDisabled } from './config';
 
 const recallSchema = z.object({ message_id: z.string().min(1) }).strict();
 const reactSchema = z.object({ message_id: z.string().min(1), emoji_id: z.string().min(1).max(32) }).strict();
 const stickerSchema = z.object({ sticker_id: z.string().uuid() }).strict();
 const collectSchema = z.object({ message_id: z.string().min(1) }).strict();
+const voiceSchema = z.object({ text: z.string().min(1).max(5000) }).strict();
 
 export class ToolBroker {
-    constructor(private readonly store: Store, private readonly stickers: StickerService) {}
+    constructor(private readonly store: Store, private readonly stickers: StickerService, private readonly speech: SpeechService) {}
 
-    definitions(enabled: boolean): ProviderToolDefinition[] {
+    definitions(enabled: boolean, conversation?: Conversation): ProviderToolDefinition[] {
         if (!enabled) return [];
         return [
             {
@@ -34,6 +37,11 @@ export class ToolBroker {
                 description: '发送一个已经收藏且安全可用的表情包。',
                 parameters: objectSchema({ sticker_id: { type: 'string' } }, ['sticker_id']),
             },
+            ...(conversation && this.speech.ttsProfile(conversation) && !speechSendDisabled(conversation) ? [{
+                name: 'send_voice',
+                description: '把一段文字用配置的 TTS 模型合成为语音并发送到当前会话。仅适合简短、适合朗读的内容；发送失败会自动回退为文字。返回 sent_as=record 即表示语音已真实发出，不要再对参与者声称无法发送语音。',
+                parameters: objectSchema({ text: { type: 'string' } }, ['text']),
+            }] : []),
             {
                 name: 'collect_sticker',
                 description: '把当前批次某条消息中的图片或商城表情交给视觉模型理解，由它判断是否值得收藏并生成摘要与标签；判定为不值得收藏时会返回不收藏，仅在你认为值得收藏时调用。',
@@ -100,6 +108,28 @@ export class ToolBroker {
                 occurredAt: Date.now(), batch: false,
             });
             return { ok: true, message_id: messageId };
+        }
+        if (call.name === 'send_voice') {
+            if (speechSendDisabled(conversation)) throw new Error('当前会话已禁用语音发送');
+            const args = voiceSchema.parse(call.arguments);
+            const result = await this.speech.sendVoice(conversation, args.text);
+            await this.store.appendMessage({
+                conversationId: conversation.id, napcatMessageId: result.messageId, senderId: pluginState.selfId || null,
+                senderName: pluginState.selfName || 'assistant', senderKind: 'self', role: 'assistant',
+                content: result.fallback
+                    ? [{ type: 'text', data: { text: args.text } }]
+                    : [{ type: 'record', data: { synthesized: true } }],
+                rawEvent: { tool: 'send_voice', fallback: result.fallback }, occurredAt: Date.now(), batch: false,
+            });
+            return result.fallback
+                ? { ok: true, fallback: 'text', message_id: result.messageId, note: '语音发送失败，已改为文字发送' }
+                : {
+                    ok: true,
+                    message_id: result.messageId,
+                    sent_as: 'record',
+                    cached: result.cached,
+                    note: '语音已合成并以语音消息发送成功。之后不要再声称自己无法发送语音。',
+                };
         }
         if (call.name === 'collect_sticker') {
             const args = collectSchema.parse(call.arguments);

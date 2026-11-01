@@ -9,6 +9,7 @@ import { SummaryService } from '../services/context/summary-service';
 import { ContextComposer } from '../services/context/context-composer';
 import { StickerService } from '../services/stickers/sticker-service';
 import { ToolBroker } from '../services/chat/tool-broker';
+import { SpeechService } from '../services/speech/speech-service';
 import { ParticipationService } from '../services/chat/participation';
 import { ChatOrchestrator } from '../services/chat/chat-orchestrator';
 import { BatchScheduler } from '../services/chat/batch-scheduler';
@@ -42,15 +43,16 @@ export class PluginRuntime {
             const summaries = new SummaryService(this.store, tasks);
             const context = new ContextComposer(this.store, memories, summaries);
             this.stickers = new StickerService(this.store, tasks);
-            const tools = new ToolBroker(this.store, this.stickers);
+            const speech = new SpeechService(this.store, providers);
+            const tools = new ToolBroker(this.store, this.stickers, speech);
             const participation = new ParticipationService(this.store);
             this.accessControl = new AccessControlService(this.store);
             await this.accessControl.init();
             const orchestrator = new ChatOrchestrator(
-                this.store, providers, context, memories, this.stickers, tools, participation, this.accessControl,
+                this.store, providers, context, memories, this.stickers, speech, tools, participation, this.accessControl,
             );
             this.scheduler = new BatchScheduler(this.store, orchestrator);
-            this.owners = new OwnerCommandService(this.store, this.accessControl, this.stickers);
+            this.owners = new OwnerCommandService(this.store, this.accessControl, this.stickers, speech);
             this.ready = true;
             this.initializationError = '';
             await this.scheduler.recover();

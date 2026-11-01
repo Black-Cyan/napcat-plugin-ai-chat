@@ -54,6 +54,7 @@ export interface ProviderProfile {
     id: string; name: string; type: ProviderType; model: string; apiKey: string; baseUrl?: string
     contextWindow: number; maxOutputTokens: number; temperature: number
     vision: boolean; toolCalling: boolean; structuredOutput: boolean
+    tts: boolean; speechRecognition: boolean; ttsVoice?: string; ttsSpeed?: number
 }
 export interface GoogleModelInfo {
     name: string; baseModelId: string; displayName: string; description: string
@@ -72,17 +73,21 @@ export interface BehaviorConfig {
     maxConcurrentTasks: number; recentMessageCount: number; maxInputTokens: number; inputBudgetRatio: number
     compressionTriggerRatio: number; maxContextRetries: number
 }
+export interface SpeechConfig {
+    transcribe: boolean; maxTtsTextLength: number; maxTtsSeconds: number
+    maxTranscribeSeconds: number; maxRecordBytes: number; cacheLimitMb: number
+}
 export interface StickerConfig { enabled: boolean; autoCollect: boolean; autoSend: boolean; maxImageBytes: number; cacheLimitMb: number; rejectionCooldownDays: number }
 export interface SessionOverride {
     enabled?: boolean; promptProfileId?: string | null; providerProfileId?: string | null
-    behavior?: Partial<BehaviorConfig>; vision?: boolean; stickers?: Partial<StickerConfig>
+    behavior?: Partial<BehaviorConfig>; vision?: boolean; stickers?: Partial<StickerConfig>; speech?: Partial<SpeechConfig>
 }
 export interface PluginConfig {
     enabled: boolean; debug: boolean; commandPrefix: string; owners: string[]
     defaultProviderId: string | null
-    taskProviders: { summary: string | null; memory: string | null; vision: string | null }
+    taskProviders: { summary: string | null; memory: string | null; vision: string | null; tts: string | null; speech: string | null }
     providers: ProviderProfile[]; database: DatabaseConfig; behavior: BehaviorConfig
-    privateDefaults: SessionOverride; groupDefaults: SessionOverride; stickers: StickerConfig
+    privateDefaults: SessionOverride; groupDefaults: SessionOverride; stickers: StickerConfig; speech: SpeechConfig
     stats: { processed: number; replies: number; startedAt: number }
 }
 export interface PluginStatus {

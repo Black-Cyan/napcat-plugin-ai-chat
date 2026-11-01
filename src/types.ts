@@ -73,6 +73,10 @@ export interface ProviderProfile {
     vision: boolean;
     toolCalling: boolean;
     structuredOutput: boolean;
+    tts?: boolean;
+    speechRecognition?: boolean;
+    ttsVoice?: string;
+    ttsSpeed?: number;
 }
 
 export interface GoogleModelInfo {
@@ -143,12 +147,30 @@ export interface SessionOverride {
     behavior?: Partial<BehaviorConfig>;
     vision?: boolean;
     stickers?: Partial<StickerConfig>;
+    speech?: Partial<SpeechConfig> & { sendVoice?: boolean };
 }
 
 export interface TaskProviderConfig {
     summary: string | null;
     memory: string | null;
     vision: string | null;
+    tts: string | null;
+    speech: string | null;
+}
+
+export interface SpeechConfig {
+    transcribe: boolean;
+    maxTtsTextLength: number;
+    maxTtsSeconds: number;
+    maxTranscribeSeconds: number;
+    maxRecordBytes: number;
+    cacheLimitMb: number;
+}
+
+export interface SynthesizedSpeech {
+    path: string;
+    mime: string;
+    cached: boolean;
 }
 
 export interface PluginConfig {
@@ -164,6 +186,7 @@ export interface PluginConfig {
     privateDefaults: SessionOverride;
     groupDefaults: SessionOverride;
     stickers: StickerConfig;
+    speech: SpeechConfig;
     stats: {
         processed: number;
         replies: number;

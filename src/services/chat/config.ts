@@ -1,4 +1,4 @@
-import type { BehaviorConfig, Conversation, SessionOverride, StickerConfig } from '../../types';
+import type { BehaviorConfig, Conversation, SessionOverride, SpeechConfig, StickerConfig } from '../../types';
 import { pluginState } from '../../core/state';
 
 export function sessionOverride(conversation: Conversation): SessionOverride {
@@ -17,6 +17,15 @@ export function effectiveBehavior(conversation: Conversation): BehaviorConfig {
 
 export function effectiveStickers(conversation: Conversation): StickerConfig {
     return { ...pluginState.config.stickers, ...sessionOverride(conversation).stickers };
+}
+
+export function effectiveSpeech(conversation: Conversation): SpeechConfig & { sendVoice?: boolean } {
+    return { ...pluginState.config.speech, ...sessionOverride(conversation).speech };
+}
+
+/** 配置了 TTS 模型即自动提供语音工具，只保留会话级禁用。 */
+export function speechSendDisabled(conversation: Conversation): boolean {
+    return sessionOverride(conversation).speech?.sendVoice === false;
 }
 
 export function effectiveVision(conversation: Conversation): boolean {

@@ -8,6 +8,7 @@ import { atSegment, textSegment } from '../../napcat/message-segments';
 import { ContextComposer } from '../context/context-composer';
 import { MemoryService } from '../memory/memory-service';
 import { StickerService } from '../stickers/sticker-service';
+import { SpeechService } from '../speech/speech-service';
 import { conversationEnabled, effectiveBehavior, effectiveProviderId, effectiveVision } from './config';
 import { ParticipantAliases } from './participants';
 import { ParticipationService } from './participation';
@@ -26,6 +27,7 @@ export class ChatOrchestrator {
         private readonly context: ContextComposer,
         private readonly memories: MemoryService,
         private readonly stickers: StickerService,
+        private readonly speech: SpeechService,
         private readonly tools: ToolBroker,
         private readonly participation: ParticipationService,
         private readonly accessControl?: AccessControlService,
@@ -65,6 +67,8 @@ export class ChatOrchestrator {
                 return;
             }
             const profile = this.providers.profile(effectiveProviderId(conversation));
+            if (profile.tts) throw new Error(`模型 ${profile.name} 已声明为 TTS 语音合成模型，不能作为聊天模型，请在模型配置中更换主聊天模型`);
+            messages = await this.speech.transcribeMessages(conversation, messages);
             const aliases = new ParticipantAliases(messages);
             // 图片理解路径由 StickerService.imageParts 按视觉任务配置决定。
             const images = effectiveVision(conversation)
@@ -87,7 +91,7 @@ export class ChatOrchestrator {
                         model: profile.model,
                         conversationId: conversation.id,
                         messages: providerMessages,
-                        tools: this.tools.definitions(profile.toolCalling),
+                        tools: this.tools.definitions(profile.toolCalling, conversation),
                     });
                 }
                 let response;
@@ -95,7 +99,7 @@ export class ChatOrchestrator {
                     response = await this.providers.generate(profile, {
                         profile,
                         messages: providerMessages,
-                        tools: this.tools.definitions(profile.toolCalling),
+                        tools: this.tools.definitions(profile.toolCalling, conversation),
                         stream: true,
                     });
                 } catch (error) {

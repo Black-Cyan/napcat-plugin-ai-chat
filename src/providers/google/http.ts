@@ -137,5 +137,6 @@ function googleHttpError(status: number, payload: any): ProviderError {
         return new ProviderError(`Google API 请求受到限流${detail}，请稍后重试`, status, false, true);
     }
     const retryable = status === 408 || status === 409 || status >= 500;
-    return new ProviderError(`Google 请求失败（HTTP ${status}${code ? ` ${code}` : ''}）`, status, false, retryable);
+    const detail = diagnostic ? `：${diagnostic.slice(0, 300)}` : '';
+    return new ProviderError(`Google 请求失败（HTTP ${status}${code ? ` ${code}` : ''}）${detail}`, status, false, retryable);
 }

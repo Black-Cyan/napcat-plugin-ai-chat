@@ -107,3 +107,27 @@ export interface NapCatImageResult {
 export async function getImage(ctx: NapCatPluginContext, file: string): Promise<NapCatImageResult> {
     return callAction<NapCatImageResult>(ctx, 'get_image', { file });
 }
+
+export async function canSendRecord(ctx: NapCatPluginContext): Promise<boolean> {
+    try {
+        const result = await callAction<{ can_send?: boolean; yes?: boolean }>(ctx, 'can_send_record', {});
+        return result?.can_send ?? result?.yes ?? true;
+    } catch {
+        // 老版本 NapCat 没有该动作时直接尝试发送。
+        return true;
+    }
+}
+
+export interface NapCatRecordResult {
+    file?: string;
+    url?: string;
+    base64?: string;
+}
+
+export async function getRecord(ctx: NapCatPluginContext, input: { file?: string; fileId?: string; outFormat?: string }): Promise<NapCatRecordResult> {
+    return callAction<NapCatRecordResult>(ctx, 'get_record', {
+        ...(input.file ? { file: input.file } : {}),
+        ...(input.fileId ? { file_id: input.fileId } : {}),
+        out_format: input.outFormat ?? 'mp3',
+    });
+}
