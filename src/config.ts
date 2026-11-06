@@ -111,7 +111,6 @@ export const pluginConfigSchema = z.object({
     }),
     speech: z.object({
         transcribe: z.boolean(),
-        sendVoice: z.boolean(),
         maxTtsTextLength: z.number().int().min(1).max(5000),
         maxTtsSeconds: z.number().int().min(1).max(600),
         maxTranscribeSeconds: z.number().int().min(1).max(3600),

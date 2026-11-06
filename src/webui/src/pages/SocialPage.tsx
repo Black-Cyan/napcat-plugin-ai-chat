@@ -37,17 +37,34 @@ import {
 
 type SocialTab = 'overview' | 'members' | 'events' | 'rules'
 
+const DEFAULT_SOCIAL_CONFIG: SocialConfig = {
+    enabled: false,
+    cooldownSeconds: 30,
+    maxDailyExp: 20,
+    maxDailyAffectionGain: 5,
+    maxDailyAffectionLoss: 10,
+    enableAiEvaluation: false,
+    familiarityThresholds: [50, 120, 220, 350, 520, 740, 1020, 1380, 1850],
+}
+
+
 export default function SocialPage() {
     const { config, setConfig, saving, error: configError, notice, save } = useConfig()
     const [tab, setTab] = useState<SocialTab>('overview')
 
-    const isEnabled = Boolean(config?.social?.enabled)
+    if (!config) return <><ErrorNotice message={configError} /><Loading label="正在读取社交配置" /></>
+
+    const socialConfig: SocialConfig = {
+        ...DEFAULT_SOCIAL_CONFIG,
+        ...(config.social ?? {}),
+    }
+
+    const isEnabled = Boolean(socialConfig.enabled)
 
     const toggleEnabled = async (enabled: boolean) => {
-        if (!config) return
         const next = {
             ...config,
-            social: { ...config.social, enabled },
+            social: { ...socialConfig, enabled },
         }
         setConfig(next)
         const ok = await save(next)
@@ -56,7 +73,20 @@ export default function SocialPage() {
         }
     }
 
-    if (!config) return <><ErrorNotice message={configError} /><Loading label="正在读取社交配置" /></>
+    const patchSocial = (patchData: Partial<SocialConfig>) => {
+        setConfig({
+            ...config,
+            social: { ...socialConfig, ...patchData },
+        })
+    }
+
+    const handleSaveRules = async () => {
+        const ok = await save()
+        if (ok) {
+            showToast('社交规则配置已保存', 'success')
+        }
+        return ok
+    }
 
     return <div className="page-stack">
         <ErrorNotice message={configError} />
@@ -137,7 +167,7 @@ export default function SocialPage() {
             {tab === 'overview' && <OverviewTab />}
             {tab === 'members' && <MembersTab />}
             {tab === 'events' && <EventsTab />}
-            {tab === 'rules' && <RulesTab config={config.social} onSave={save} saving={saving} />}
+            {tab === 'rules' && <RulesTab config={socialConfig} onChange={patchSocial} onSave={handleSaveRules} saving={saving} />}
         </div>
     </div>
 }
@@ -605,23 +635,23 @@ function EventRow({ event }: { event: SocialEvent }) {
 
 // ==================== 4. 规则配置 (Rules) ====================
 
-function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: () => Promise<boolean>; saving: boolean }) {
-    const { config: fullConfig, setConfig } = useConfig()
-
-    const patch = (patchData: Partial<SocialConfig>) => {
-        if (!fullConfig) return
-        setConfig({
-            ...fullConfig,
-            social: { ...fullConfig.social, ...patchData },
-        })
-    }
-
+function RulesTab({
+    config,
+    onChange,
+    onSave,
+    saving,
+}: {
+    config: SocialConfig
+    onChange: (patch: Partial<SocialConfig>) => void
+    onSave: () => Promise<boolean>
+    saving: boolean
+}) {
     const currentThresholds = config.familiarityThresholds || [50, 120, 220, 350, 520, 740, 1020, 1380, 1850]
 
     const updateThreshold = (index: number, val: number) => {
         const next = [...currentThresholds]
         next[index] = val
-        patch({ familiarityThresholds: next })
+        onChange({ familiarityThresholds: next })
     }
 
     return <div className="page-stack">
@@ -632,7 +662,7 @@ function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: ()
                         min="0"
                         max="86400"
                         value={config.cooldownSeconds}
-                        onChange={(e) => patch({ cooldownSeconds: Number(e.target.value) || 0 })}
+                        onChange={(e) => onChange({ cooldownSeconds: Number(e.target.value) || 0 })}
                     />
                 </Field>
 
@@ -641,7 +671,7 @@ function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: ()
                         min="0"
                         max="1000"
                         value={config.maxDailyExp}
-                        onChange={(e) => patch({ maxDailyExp: Number(e.target.value) || 0 })}
+                        onChange={(e) => onChange({ maxDailyExp: Number(e.target.value) || 0 })}
                     />
                 </Field>
 
@@ -650,7 +680,7 @@ function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: ()
                         min="0"
                         max="100"
                         value={config.maxDailyAffectionGain}
-                        onChange={(e) => patch({ maxDailyAffectionGain: Number(e.target.value) || 0 })}
+                        onChange={(e) => onChange({ maxDailyAffectionGain: Number(e.target.value) || 0 })}
                     />
                 </Field>
 
@@ -659,7 +689,7 @@ function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: ()
                         min="0"
                         max="100"
                         value={config.maxDailyAffectionLoss}
-                        onChange={(e) => patch({ maxDailyAffectionLoss: Number(e.target.value) || 0 })}
+                        onChange={(e) => onChange({ maxDailyAffectionLoss: Number(e.target.value) || 0 })}
                     />
                 </Field>
             </div>
@@ -668,7 +698,7 @@ function RulesTab({ config, onSave, saving }: { config: SocialConfig; onSave: ()
         <Panel title="AI 辅助态度评价" description="可选特性。由轻量模型分析对话态度并由规则引擎受控结算。">
             <Toggle
                 checked={config.enableAiEvaluation}
-                onChange={(enableAiEvaluation) => patch({ enableAiEvaluation })}
+                onChange={(enableAiEvaluation) => onChange({ enableAiEvaluation })}
                 label="允许 AI 辅助评价对话态度"
                 hint="开启后后台将调用模型判定友好/中立/敌意，好感度据此小幅波动，受日上限控制。"
             />
