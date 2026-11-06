@@ -136,7 +136,11 @@ describe('SQLite persistence', () => {
         await sql`alter table user_profiles drop column address_manual`.execute(database!.db);
         await database!.setMetadata('schema_version', '3');
         await database!.migrate();
-        expect(Number(await database!.getMetadata('schema_version'))).toBeGreaterThanOrEqual(6);
+        expect(Number(await database!.getMetadata('schema_version'))).toBe(7);
+        // Verify migration V7 backfilled existing user profiles into identities
+        const identity = await store.getIdentityByExternalId('qq', '10001');
+        expect(identity).not.toBeNull();
+        expect(identity?.externalId).toBe('10001');
         const profiles = await store.getProfiles(['10001']);
         expect(profiles[0].displayName).toBe('Alice');
         expect(profiles[0].address).toBe('');
@@ -148,6 +152,66 @@ describe('SQLite persistence', () => {
         await store.saveSpeechTranscript(speechConversation.id, 'a'.repeat(64), '转写内容');
         expect(await store.getSpeechTranscript(speechConversation.id, 'a'.repeat(64))).toBe('转写内容');
         expect(await store.getSpeechTranscript('other', 'a'.repeat(64))).toBeNull();
+    });
+
+    it('resets summary without deleting conversation or raw messages', async () => {
+        const conversation = await store.ensureConversation('group', '574551365', 'Furminal');
+        await store.appendMessage(input(conversation.id, 'n1'));
+        await store.appendMessage(input(conversation.id, 'n2'));
+        await store.saveSummary(conversation.id, '旧摘要内容', 0, 2);
+
+        const before = await store.getSummary(conversation.id);
+        expect(before.content).toBe('旧摘要内容');
+        expect(before.coveredThroughSeq).toBe(2);
+
+        await store.resetSummary(conversation.id);
+        const after = await store.getSummary(conversation.id);
+        expect(after.content).toBe('');
+        expect(after.coveredThroughSeq).toBe(0);
+
+        // Verify conversation and raw messages are preserved
+        const found = await store.findConversationByTargetId('574551365');
+        expect(found?.id).toBe(conversation.id);
+        const messages = await store.getRecentMessages(conversation.id, 3, 10, false);
+        expect(messages.length).toBe(2);
+    });
+
+    it('exports and imports all tables and remaps existing conversations without foreign key violation', async () => {
+        const conv = await store.ensureConversation('group', '574551365', 'Furminal');
+        const userUuid = await store.getOrCreateUserIdentity('qq', '10001');
+        await store.applySocialEvent({
+            botId: 'bot-1',
+            userId: userUuid,
+            eventType: 'chat_rule',
+            affectionDelta: 10,
+            expDelta: 15,
+            reason: '日常聊天',
+        });
+        await store.appendMessage(input(conv.id, 'msg-1'));
+
+        const exported = await store.exportData();
+        expect(exported.format).toBe('napcat-ai-chat-v1');
+        expect(Array.isArray(exported.user_identities)).toBe(true);
+        expect(Array.isArray(exported.user_social_relations)).toBe(true);
+
+        // Simulate importing into a new database where Furminal already exists with a different UUID
+        const newDir = await fs.mkdtemp(path.join(os.tmpdir(), 'napcat-import-test-'));
+        const newDb = await createDatabase({
+            driver: 'sqlite', sqliteFile: 'new.sqlite', connectionString: '', poolSize: 1, tls: false,
+        }, newDir);
+        const newStore = new Store(newDb);
+        await newStore.seed();
+        // Create conflicting conversation with different UUID
+        const conflictConv = await newStore.ensureConversation('group', '574551365', 'Furminal New');
+        expect(conflictConv.id).not.toBe(conv.id);
+
+        await newStore.importData(exported);
+        const importedMsgs = await newStore.getRecentMessages(conflictConv.id, 10, 10, false);
+        expect(importedMsgs.length).toBe(1);
+        expect(importedMsgs[0].rawEvent).toEqual({ id: 'msg-1' });
+
+        await newDb.close();
+        await fs.rm(newDir, { recursive: true, force: true });
     });
 
     it('keeps immutable raw messages when saving a summary', async () => {

@@ -1,3 +1,11 @@
+const EXPORT_TABLES = [
+    'configs', 'provider_profiles', 'prompt_profiles', 'conversations',
+    'messages', 'user_memories', 'stickers', 'access_lists', 'access_list_members',
+    'access_control_state', 'conversation_summaries', 'user_identities',
+    'user_social_relations', 'social_events', 'social_rules',
+    'social_daily_usage', 'social_risk_limits',
+] as const;
+
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Database } from './database';
@@ -26,6 +34,10 @@ import type {
     StickerDecisionRecord,
     UserMemory,
     UserProfile,
+    UserIdentity,
+    UserSocialRelation,
+    SocialEvent,
+    SocialEventType,
 } from '../types';
 import { normalizeSubjectId } from '../types';
 
@@ -40,6 +52,17 @@ export interface AppendMessageInput {
     rawEvent: unknown;
     occurredAt: number;
     batch: boolean;
+}
+
+export const DEFAULT_FAMILIARITY_THRESHOLDS = [50, 120, 220, 350, 520, 740, 1020, 1380, 1850];
+
+export function calculateFamiliarityLevel(exp: number, thresholds: number[] = DEFAULT_FAMILIARITY_THRESHOLDS): number {
+    let level = 1;
+    for (let i = 0; i < thresholds.length; i++) {
+        if (exp >= thresholds[i]) level = i + 2;
+        else break;
+    }
+    return Math.min(10, Math.max(1, level));
 }
 
 export class Store {
@@ -62,6 +85,331 @@ export class Store {
                 updated_at: now,
             }).execute();
         }
+    }
+
+
+    // ==================== 全局用户身份映射 (Identity) ====================
+
+    async getOrCreateUserIdentity(platform = 'qq', externalId: string): Promise<string> {
+        const existing = await this.db.selectFrom('user_identities')
+            .select('internal_id')
+            .where('platform', '=', platform)
+            .where('external_id', '=', externalId)
+            .executeTakeFirst();
+        if (existing) return existing.internal_id;
+        const internalId = randomUUID();
+        const now = Date.now();
+        await this.db.insertInto('user_identities').values({
+            internal_id: internalId,
+            platform,
+            external_id: externalId,
+            created_at: now,
+            updated_at: now,
+        }).onConflict((oc) => oc.doNothing()).execute();
+        const row = await this.db.selectFrom('user_identities')
+            .select('internal_id')
+            .where('platform', '=', platform)
+            .where('external_id', '=', externalId)
+            .executeTakeFirstOrThrow();
+        return row.internal_id;
+    }
+
+    async getIdentityByInternalId(internalId: string): Promise<UserIdentity | null> {
+        const row = await this.db.selectFrom('user_identities')
+            .selectAll()
+            .where('internal_id', '=', internalId)
+            .executeTakeFirst();
+        return row ? {
+            internalId: row.internal_id,
+            platform: row.platform,
+            externalId: row.external_id,
+            createdAt: Number(row.created_at),
+            updatedAt: Number(row.updated_at),
+        } : null;
+    }
+
+    async getIdentityByExternalId(platform = 'qq', externalId: string): Promise<UserIdentity | null> {
+        const row = await this.db.selectFrom('user_identities')
+            .selectAll()
+            .where('platform', '=', platform)
+            .where('external_id', '=', externalId)
+            .executeTakeFirst();
+        return row ? {
+            internalId: row.internal_id,
+            platform: row.platform,
+            externalId: row.external_id,
+            createdAt: Number(row.created_at),
+            updatedAt: Number(row.updated_at),
+        } : null;
+    }
+
+    // ==================== 社交关系系统 (Social Relations) ====================
+
+    async getOrCreateSocialRelation(botId: string, userId: string): Promise<UserSocialRelation> {
+        const row = await this.db.selectFrom('user_social_relations')
+            .selectAll()
+            .where('bot_id', '=', botId)
+            .where('user_id', '=', userId)
+            .executeTakeFirst();
+        if (row) return mapSocialRelation(row);
+        const now = Date.now();
+        await this.db.insertInto('user_social_relations').values({
+            bot_id: botId,
+            user_id: userId,
+            affection: 0,
+            familiarity_exp: 0,
+            familiarity_level: 1,
+            first_interacted_at: 0,
+            last_interacted_at: 0,
+            created_at: now,
+            updated_at: now,
+        }).onConflict((oc) => oc.doNothing()).execute();
+        const fresh = await this.db.selectFrom('user_social_relations')
+            .selectAll()
+            .where('bot_id', '=', botId)
+            .where('user_id', '=', userId)
+            .executeTakeFirstOrThrow();
+        return mapSocialRelation(fresh);
+    }
+
+    async getSocialRelation(botId: string, userId: string): Promise<UserSocialRelation | null> {
+        const row = await this.db.selectFrom('user_social_relations')
+            .selectAll()
+            .where('bot_id', '=', botId)
+            .where('user_id', '=', userId)
+            .executeTakeFirst();
+        return row ? mapSocialRelation(row) : null;
+    }
+
+    async applySocialEvent(input: {
+        botId: string;
+        userId: string;
+        eventType: SocialEventType;
+        affectionDelta?: number;
+        expDelta?: number;
+        conversationId?: string | null;
+        messageBatchId?: string | null;
+        reason: string;
+        thresholds?: number[];
+    }): Promise<UserSocialRelation> {
+        return this.db.transaction().execute(async (trx) => {
+            const now = Date.now();
+            let row = await trx.selectFrom('user_social_relations')
+                .selectAll()
+                .where('bot_id', '=', input.botId)
+                .where('user_id', '=', input.userId)
+                .executeTakeFirst();
+            if (!row) {
+                await trx.insertInto('user_social_relations').values({
+                    bot_id: input.botId,
+                    user_id: input.userId,
+                    affection: 0,
+                    familiarity_exp: 0,
+                    familiarity_level: 1,
+                    first_interacted_at: 0,
+                    last_interacted_at: 0,
+                    created_at: now,
+                    updated_at: now,
+                }).onConflict((oc) => oc.doNothing()).execute();
+                row = await trx.selectFrom('user_social_relations')
+                    .selectAll()
+                    .where('bot_id', '=', input.botId)
+                    .where('user_id', '=', input.userId)
+                    .executeTakeFirstOrThrow();
+            }
+            const current = mapSocialRelation(row);
+
+            // 幂等性防护：相同批次消息重复处理直接返回当前快照，防止多次结算
+            if (input.messageBatchId) {
+                const existing = await trx.selectFrom('social_events')
+                    .select('id')
+                    .where('bot_id', '=', input.botId)
+                    .where('user_id', '=', input.userId)
+                    .where('message_batch_id', '=', input.messageBatchId)
+                    .executeTakeFirst();
+                if (existing) return current;
+            }
+
+            const rawAffection = current.affection + (input.affectionDelta ?? 0);
+            const clampedAffection = Math.min(100, Math.max(-100, rawAffection));
+            const newExp = Math.max(0, current.familiarityExp + (input.expDelta ?? 0));
+            const thresholds = input.thresholds ?? DEFAULT_FAMILIARITY_THRESHOLDS;
+            const newLevel = calculateFamiliarityLevel(newExp, thresholds);
+            const firstInteracted = current.firstInteractedAt === 0 ? now : current.firstInteractedAt;
+
+            await trx.updateTable('user_social_relations').set({
+                affection: clampedAffection,
+                familiarity_exp: newExp,
+                familiarity_level: newLevel,
+                first_interacted_at: firstInteracted,
+                last_interacted_at: now,
+                updated_at: now,
+            }).where('bot_id', '=', input.botId).where('user_id', '=', input.userId).execute();
+
+            await trx.insertInto('social_events').values({
+                id: randomUUID(),
+                bot_id: input.botId,
+                user_id: input.userId,
+                event_type: input.eventType,
+                affection_delta: input.affectionDelta ?? 0,
+                affection_after: clampedAffection,
+                exp_delta: input.expDelta ?? 0,
+                exp_after: newExp,
+                conversation_id: input.conversationId ?? null,
+                message_batch_id: input.messageBatchId ?? null,
+                reason: input.reason,
+                created_at: now,
+            }).execute();
+
+            return {
+                botId: input.botId,
+                userId: input.userId,
+                affection: clampedAffection,
+                familiarityExp: newExp,
+                familiarityLevel: newLevel,
+                firstInteractedAt: current.firstInteractedAt,
+                lastInteractedAt: now,
+                createdAt: current.createdAt,
+                updatedAt: now,
+            };
+        });
+    }
+
+    async resetSocialRelation(botId: string, userId: string, reason = '所有者重置'): Promise<UserSocialRelation> {
+        return this.db.transaction().execute(async (trx) => {
+            const now = Date.now();
+            let row = await trx.selectFrom('user_social_relations')
+                .selectAll()
+                .where('bot_id', '=', botId)
+                .where('user_id', '=', userId)
+                .executeTakeFirst();
+            if (!row) {
+                await trx.insertInto('user_social_relations').values({
+                    bot_id: botId,
+                    user_id: userId,
+                    affection: 0,
+                    familiarity_exp: 0,
+                    familiarity_level: 1,
+                    first_interacted_at: 0,
+                    last_interacted_at: 0,
+                    created_at: now,
+                    updated_at: now,
+                }).onConflict((oc) => oc.doNothing()).execute();
+                row = await trx.selectFrom('user_social_relations')
+                    .selectAll()
+                    .where('bot_id', '=', botId)
+                    .where('user_id', '=', userId)
+                    .executeTakeFirstOrThrow();
+            }
+            const current = mapSocialRelation(row);
+
+            await trx.updateTable('user_social_relations').set({
+                affection: 0,
+                familiarity_exp: 0,
+                familiarity_level: 1,
+                last_interacted_at: now,
+                updated_at: now,
+            }).where('bot_id', '=', botId).where('user_id', '=', userId).execute();
+
+            await trx.insertInto('social_events').values({
+                id: randomUUID(),
+                bot_id: botId,
+                user_id: userId,
+                event_type: 'admin_reset',
+                affection_delta: -current.affection,
+                affection_after: 0,
+                exp_delta: -current.familiarityExp,
+                exp_after: 0,
+                conversation_id: null,
+                message_batch_id: null,
+                reason,
+                created_at: now,
+            }).execute();
+
+            return {
+                botId,
+                userId,
+                affection: 0,
+                familiarityExp: 0,
+                familiarityLevel: 1,
+                firstInteractedAt: current.firstInteractedAt,
+                lastInteractedAt: now,
+                createdAt: current.createdAt,
+                updatedAt: now,
+            };
+        });
+    }
+
+    async getDailySocialStats(botId: string, userId: string, sinceMidnight: number): Promise<{ expDeltaSum: number; affectionGainSum: number; affectionLossSum: number }> {
+        const rows = await this.db.selectFrom('social_events')
+            .select(['exp_delta', 'affection_delta'])
+            .where('bot_id', '=', botId)
+            .where('user_id', '=', userId)
+            .where('created_at', '>=', sinceMidnight)
+            .execute();
+        let expDeltaSum = 0;
+        let affectionGainSum = 0;
+        let affectionLossSum = 0;
+        for (const r of rows) {
+            const exp = Number(r.exp_delta);
+            const aff = Number(r.affection_delta);
+            if (exp > 0) expDeltaSum += exp;
+            if (aff > 0) affectionGainSum += aff;
+            if (aff < 0) affectionLossSum += Math.abs(aff);
+        }
+        return { expDeltaSum, affectionGainSum, affectionLossSum };
+    }
+
+    async countSocialRelations(botId: string): Promise<number> {
+        const row = await this.db.selectFrom('user_social_relations')
+            .select((eb) => eb.fn.countAll().as('count'))
+            .where('bot_id', '=', botId)
+            .executeTakeFirst();
+        return Number((row as any)?.count ?? 0);
+    }
+
+    async listSocialRelations(botId: string, search = '', limit = 50, offset = 0): Promise<Array<UserSocialRelation & { externalId: string; displayName: string }>> {
+        let query = this.db.selectFrom('user_social_relations as r')
+            .innerJoin('user_identities as i', 'i.internal_id', 'r.user_id')
+            .leftJoin('user_profiles as p', 'p.qq', 'i.external_id')
+            .select([
+                'r.bot_id', 'r.user_id', 'r.affection', 'r.familiarity_exp', 'r.familiarity_level',
+                'r.first_interacted_at', 'r.last_interacted_at', 'r.created_at', 'r.updated_at',
+                'i.external_id', 'p.display_name'
+            ])
+            .where('r.bot_id', '=', botId);
+
+        if (search) {
+            const pattern = `%${search}%`;
+            query = query.where((eb) => eb.or([
+                eb('i.external_id', 'like', pattern),
+                eb('p.display_name', 'like', pattern),
+            ]));
+        }
+
+        const rows = await query.orderBy('r.last_interacted_at', 'desc').limit(limit).offset(offset).execute();
+        return rows.map((row) => ({
+            botId: row.bot_id,
+            userId: row.user_id,
+            affection: Number(row.affection),
+            familiarityExp: Number(row.familiarity_exp),
+            familiarityLevel: Number(row.familiarity_level),
+            firstInteractedAt: Number(row.first_interacted_at),
+            lastInteractedAt: Number(row.last_interacted_at),
+            createdAt: Number(row.created_at),
+            updatedAt: Number(row.updated_at),
+            externalId: row.external_id,
+            displayName: row.display_name || '',
+        }));
+    }
+
+    async listSocialEvents(botId: string, userId?: string, limit = 50): Promise<SocialEvent[]> {
+        let query = this.db.selectFrom('social_events')
+            .selectAll()
+            .where('bot_id', '=', botId);
+        if (userId) query = query.where('user_id', '=', userId);
+        const rows = await query.orderBy('created_at', 'desc').limit(limit).execute();
+        return rows.map(mapSocialEvent);
     }
 
     async ensureConversation(type: ConversationType, targetId: string, title = ''): Promise<Conversation> {
@@ -207,6 +555,28 @@ export class Store {
         const rows = await this.db.selectFrom('messages').selectAll().where('conversation_id', '=', conversationId)
             .where('seq', '>=', fromSeq).where('seq', '<=', throughSeq).orderBy('seq', 'asc').execute();
         return this.filterModelMessages(conversationId, rows);
+    }
+
+    async resetSummary(conversationId: string): Promise<void> {
+        const now = Date.now();
+        const existing = await this.db.selectFrom('conversation_summaries')
+            .select('conversation_id').where('conversation_id', '=', conversationId).executeTakeFirst();
+        if (existing) {
+            await this.db.updateTable('conversation_summaries')
+                .set({ content: '', covered_through_seq: 0, updated_at: now })
+                .where('conversation_id', '=', conversationId).execute();
+        } else {
+            await this.db.insertInto('conversation_summaries')
+                .values({ conversation_id: conversationId, content: '', covered_through_seq: 0, updated_at: now })
+                .onConflict((c) => c.doNothing())
+                .execute();
+        }
+    }
+
+    async findConversationByTargetId(targetId: string): Promise<Conversation | null> {
+        const row = await this.db.selectFrom('conversations').selectAll()
+            .where('target_id', '=', targetId).executeTakeFirst();
+        return row ? mapConversation(row) : null;
     }
 
     async getSummary(conversationId: string): Promise<{ content: string; coveredThroughSeq: number }> {
@@ -876,7 +1246,13 @@ export class Store {
     }
 
     async exportData(): Promise<Record<string, unknown>> {
-        const tables = ['conversations', 'message_batches', 'messages', 'conversation_summaries', 'prompt_profiles', 'user_profiles', 'user_memories', 'blacklist_entries', 'access_lists', 'access_list_members', 'stickers', 'sticker_sightings', 'tool_executions'] as const;
+        const tables = [
+            'user_identities', 'user_profiles', 'conversations', 'prompt_profiles',
+            'message_batches', 'messages', 'conversation_summaries', 'user_memories',
+            'blacklist_entries', 'access_lists', 'access_list_members', 'stickers',
+            'sticker_sightings', 'sticker_decisions', 'speech_transcripts', 'tool_executions',
+            'user_social_relations', 'social_events',
+        ] as const;
         const output: Record<string, unknown> = {
             format: 'napcat-ai-chat-v1',
             exportedAt: Date.now(),
@@ -888,12 +1264,45 @@ export class Store {
 
     async importData(snapshot: Record<string, unknown>, applyAccessControl = false): Promise<void> {
         if (snapshot.format !== 'napcat-ai-chat-v1') throw new Error('不支持的数据导出格式');
-        const tables = ['conversations', 'prompt_profiles', 'message_batches', 'messages', 'conversation_summaries', 'user_memories', 'blacklist_entries', 'access_lists', 'access_list_members', 'stickers', 'sticker_sightings', 'tool_executions'] as const;
+        const tables = [
+            'user_identities', 'user_profiles', 'conversations', 'prompt_profiles',
+            'message_batches', 'messages', 'conversation_summaries', 'user_memories',
+            'blacklist_entries', 'access_lists', 'access_list_members', 'stickers',
+            'sticker_sightings', 'sticker_decisions', 'speech_transcripts', 'tool_executions',
+            'user_social_relations', 'social_events',
+        ] as const;
+
         await this.db.transaction().execute(async (trx) => {
+            // 对话重映射：若目标库已有相同 (type, target_id) 的会话但 ID 不同，映射外键以避免违反外键约束
+            const conversationIdMap = new Map<string, string>();
+            const importedConvs = snapshot['conversations'];
+            if (Array.isArray(importedConvs)) {
+                for (const c of importedConvs as any[]) {
+                    if (!c || !c.type || !c.target_id || !c.id) continue;
+                    const existing = await trx.selectFrom('conversations').select('id')
+                        .where('type', '=', c.type).where('target_id', '=', c.target_id).executeTakeFirst();
+                    if (existing && existing.id !== c.id) {
+                        conversationIdMap.set(c.id, existing.id);
+                    }
+                }
+            }
+
             for (const table of tables) {
-                const rows = snapshot[table];
-                if (!Array.isArray(rows) || !rows.length) continue;
-                if (rows.length > 100000) throw new Error('单个数据表导入记录过多');
+                const rawRows = snapshot[table];
+                if (!Array.isArray(rawRows) || !rawRows.length) continue;
+                if (rawRows.length > 100000) throw new Error('单个数据表导入记录过多');
+
+                let rows = rawRows as any[];
+                if (conversationIdMap.size > 0) {
+                    rows = rows.map((row) => {
+                        if (!row || typeof row !== 'object') return row;
+                        if (row.conversation_id && conversationIdMap.has(row.conversation_id)) {
+                            return { ...row, conversation_id: conversationIdMap.get(row.conversation_id) };
+                        }
+                        return row;
+                    });
+                }
+
                 for (let offset = 0; offset < rows.length; offset += 500) {
                     const chunk = rows.slice(offset, offset + 500);
                     await trx.insertInto(table).values(chunk as never).onConflict((conflict) => conflict.doNothing()).execute();
@@ -996,6 +1405,37 @@ function mapAccessListMember(row: AccessListMemberRow): AccessListMember {
         subjectType: row.subject_type,
         subjectId: row.subject_id,
         note: row.note || '',
+        createdAt: Number(row.created_at),
+    };
+}
+
+function mapSocialRelation(row: import('./schema').UserSocialRelationTable): UserSocialRelation {
+    return {
+        botId: row.bot_id,
+        userId: row.user_id,
+        affection: Number(row.affection),
+        familiarityExp: Number(row.familiarity_exp),
+        familiarityLevel: Number(row.familiarity_level),
+        firstInteractedAt: Number(row.first_interacted_at),
+        lastInteractedAt: Number(row.last_interacted_at),
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+    };
+}
+
+function mapSocialEvent(row: import('./schema').SocialEventTable): SocialEvent {
+    return {
+        id: row.id,
+        botId: row.bot_id,
+        userId: row.user_id,
+        eventType: row.event_type as SocialEventType,
+        affectionDelta: Number(row.affection_delta),
+        affectionAfter: Number(row.affection_after),
+        expDelta: Number(row.exp_delta),
+        expAfter: Number(row.exp_after),
+        conversationId: row.conversation_id,
+        messageBatchId: row.message_batch_id,
+        reason: row.reason,
         createdAt: Number(row.created_at),
     };
 }

@@ -89,7 +89,7 @@ export function Empty({ title, description }: { title: string; description: stri
 }
 
 /** 操作结果统一走带倒计时进度条的 Toast。 */
-export function Notice({ message, tone = 'info' }: { message: string; tone?: 'info' | 'success' | 'error' | 'warning' }) {
+export function Notice({ message, tone = 'success' }: { message: string; tone?: 'info' | 'success' | 'error' | 'warning' }) {
     const previous = useRef('')
     useEffect(() => {
         if (message && message !== previous.current) showToast(message, tone)
@@ -133,5 +133,24 @@ export function MarqueeText({ text, className = '' }: { text: string; className?
         {overflow
             ? <span className="marquee-inner"><span>{text}</span><span aria-hidden="true">{text}</span></span>
             : <span className="marquee-text">{text}</span>}
+    </span>
+}
+
+export function UserAvatar({ qq, name, size = 48 }: { qq: string; name: string; size?: number }) {
+    const [failed, setFailed] = useState(false)
+    const numeric = /^\d{5,12}$/.test(qq)
+    return <span className="user-avatar" style={{ width: size, height: size }}>
+        {numeric && !failed ? (
+            <img
+                src={`https://q1.qlogo.cn/g?b=qq&nk=${qq}&s=100`}
+                alt={name || qq}
+                loading="lazy"
+                onError={() => setFailed(true)}
+            />
+        ) : (
+            <span className="avatar-fallback" aria-hidden="true">
+                {(name || qq || '?').slice(0, 2)}
+            </span>
+        )}
     </span>
 }

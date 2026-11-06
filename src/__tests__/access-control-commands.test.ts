@@ -123,6 +123,11 @@ describe('OwnerCommandService access control commands', () => {
                     (m) => !(m.listId === listId && m.subjectType === subjectType && m.subjectId === subjectId),
                 );
             }),
+            resetSummary: vi.fn().mockResolvedValue(undefined),
+            findConversationByTargetId: vi.fn().mockImplementation(async (targetId: string) => {
+                if (targetId === '574551365') return { id: 'c-group', type: 'group', targetId: '574551365', title: 'Furminal' } as any;
+                return null;
+            }),
             getAccessPolicySnapshot: vi.fn().mockImplementation(async () => ({
                 mode: state.mode,
                 activeBlacklistId: state.activeBlacklistId,
@@ -193,6 +198,41 @@ describe('OwnerCommandService access control commands', () => {
 
         await service.handle(makeIncoming('#解除拉黑群 50005'), makeConversation());
         expect(sentMessages[3]).toBe('已从黑名单中移除');
+    });
+
+    it('resets current conversation summary with #重置摘要 in private chat', async () => {
+        const store = mockStore();
+        const accessControl = new AccessControlService(store);
+        await accessControl.init();
+        const service = new OwnerCommandService(store, accessControl, {} as any);
+
+        const conv = makeConversation();
+        await service.handle(makeIncoming('#重置摘要'), conv);
+        expect(store.resetSummary).toHaveBeenCalledWith('c-owner');
+        expect(sentMessages[0]).toBe('已重置当前会话的历史摘要，原始消息已保留');
+    });
+
+    it('resets target conversation summary with #重置摘要 <群号>', async () => {
+        const store = mockStore();
+        const accessControl = new AccessControlService(store);
+        await accessControl.init();
+        const service = new OwnerCommandService(store, accessControl, {} as any);
+
+        const conv = makeConversation();
+        await service.handle(makeIncoming('#重置摘要 574551365'), conv);
+        expect(store.resetSummary).toHaveBeenCalledWith('c-group');
+        expect(sentMessages[0]).toBe('已重置会话“Furminal”的历史摘要，原始消息已保留');
+    });
+
+    it('reports clear error when target conversation does not exist', async () => {
+        const store = mockStore();
+        const accessControl = new AccessControlService(store);
+        await accessControl.init();
+        const service = new OwnerCommandService(store, accessControl, {} as any);
+
+        const conv = makeConversation();
+        await service.handle(makeIncoming('#重置摘要 999999'), conv);
+        expect(sentMessages[0]).toContain('未找到目标 999999 的会话数据');
     });
 
     it('guards against blacklisting the last owner', async () => {

@@ -165,6 +165,41 @@ export interface MetadataTable {
     value: string;
 }
 
+export interface UserIdentityTable {
+    internal_id: string;
+    platform: string;
+    external_id: string;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface UserSocialRelationTable {
+    bot_id: string;
+    user_id: string;
+    affection: number;
+    familiarity_exp: number;
+    familiarity_level: number;
+    first_interacted_at: number;
+    last_interacted_at: number;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SocialEventTable {
+    id: string;
+    bot_id: string;
+    user_id: string;
+    event_type: string;
+    affection_delta: number;
+    affection_after: number;
+    exp_delta: number;
+    exp_after: number;
+    conversation_id: string | null;
+    message_batch_id: string | null;
+    reason: string;
+    created_at: number;
+}
+
 export interface DatabaseSchema {
     conversations: ConversationTable;
     messages: MessageTable;
@@ -182,4 +217,7 @@ export interface DatabaseSchema {
     speech_transcripts: SpeechTranscriptTable;
     tool_executions: ToolExecutionTable;
     app_metadata: MetadataTable;
+    user_identities: UserIdentityTable;
+    user_social_relations: UserSocialRelationTable;
+    social_events: SocialEventTable;
 }

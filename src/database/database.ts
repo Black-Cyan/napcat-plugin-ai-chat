@@ -46,7 +46,69 @@ export class Database {
         if (version < 4) await this.migrateV4();
         if (version < 5) await this.migrateV5();
         if (version < 6) await this.migrateV6();
-        await this.setMetadata('schema_version', '6');
+        if (version < 7) await this.migrateV7();
+        await this.setMetadata('schema_version', '7');
+    }
+
+    private async migrateV7(): Promise<void> {
+        const schema = this.db.schema;
+
+        // 1. 全局用户身份映射表 (UUID v4)
+        await schema.createTable('user_identities').ifNotExists()
+            .addColumn('internal_id', 'varchar(64)', (c) => c.primaryKey())
+            .addColumn('platform', 'varchar(16)', (c) => c.notNull().defaultTo('qq'))
+            .addColumn('external_id', 'varchar(64)', (c) => c.notNull())
+            .addColumn('created_at', 'bigint', (c) => c.notNull())
+            .addColumn('updated_at', 'bigint', (c) => c.notNull())
+            .addUniqueConstraint('uq_identities_platform_external', ['platform', 'external_id'])
+            .execute();
+
+        // 2. 关系主表 (按 bot_id 与 user_id 双主键隔离)
+        await schema.createTable('user_social_relations').ifNotExists()
+            .addColumn('bot_id', 'varchar(64)', (c) => c.notNull())
+            .addColumn('user_id', 'varchar(64)', (c) => c.notNull().references('user_identities.internal_id').onDelete('cascade'))
+            .addColumn('affection', 'integer', (c) => c.notNull().defaultTo(0))
+            .addColumn('familiarity_exp', 'integer', (c) => c.notNull().defaultTo(0))
+            .addColumn('familiarity_level', 'integer', (c) => c.notNull().defaultTo(1))
+            .addColumn('first_interacted_at', 'bigint', (c) => c.notNull())
+            .addColumn('last_interacted_at', 'bigint', (c) => c.notNull())
+            .addColumn('created_at', 'bigint', (c) => c.notNull())
+            .addColumn('updated_at', 'bigint', (c) => c.notNull())
+            .addPrimaryKeyConstraint('pk_user_social_relations', ['bot_id', 'user_id'])
+            .execute();
+
+        // 3. 社交互动审计流水表
+        await schema.createTable('social_events').ifNotExists()
+            .addColumn('id', 'varchar(64)', (c) => c.primaryKey())
+            .addColumn('bot_id', 'varchar(64)', (c) => c.notNull())
+            .addColumn('user_id', 'varchar(64)', (c) => c.notNull().references('user_identities.internal_id').onDelete('cascade'))
+            .addColumn('event_type', 'varchar(32)', (c) => c.notNull())
+            .addColumn('affection_delta', 'integer', (c) => c.notNull().defaultTo(0))
+            .addColumn('affection_after', 'integer', (c) => c.notNull())
+            .addColumn('exp_delta', 'integer', (c) => c.notNull().defaultTo(0))
+            .addColumn('exp_after', 'integer', (c) => c.notNull())
+            .addColumn('conversation_id', 'varchar(64)')
+            .addColumn('message_batch_id', 'varchar(64)')
+            .addColumn('reason', 'text', (c) => c.notNull())
+            .addColumn('created_at', 'bigint', (c) => c.notNull())
+            .execute();
+
+        await this.createIndex('idx_identities_external', 'user_identities', ['platform', 'external_id']);
+        await this.createIndex('idx_social_events_user', 'social_events', ['bot_id', 'user_id', 'created_at']);
+        await this.createIndex('idx_social_events_batch', 'social_events', ['message_batch_id']);
+
+        // 数据平滑过渡：从现有 user_profiles 中一次性同步出既有用户的身份映射
+        const now = Date.now();
+        const existingProfiles = await this.db.selectFrom('user_profiles').select(['qq', 'created_at']).execute();
+        for (const profile of existingProfiles) {
+            await this.db.insertInto('user_identities').values({
+                internal_id: randomUUID(),
+                platform: 'qq',
+                external_id: profile.qq,
+                created_at: Number(profile.created_at) || now,
+                updated_at: now,
+            }).onConflict((oc) => oc.doNothing()).execute();
+        }
     }
 
     private async migrateV6(): Promise<void> {

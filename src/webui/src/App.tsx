@@ -8,6 +8,7 @@ import ProvidersPage from './pages/ProvidersPage'
 import PromptsPage from './pages/PromptsPage'
 import ConversationsPage from './pages/ConversationsPage'
 import MemoriesPage from './pages/MemoriesPage'
+import SocialPage from './pages/SocialPage'
 import StickersPage from './pages/StickersPage'
 import AccessControlPage from './pages/AccessControlPage'
 import DatabasePage from './pages/DatabasePage'
@@ -17,11 +18,12 @@ import { useStatus } from './hooks/useStatus'
 import { useTheme } from './hooks/useTheme'
 import { ConfirmProvider } from './components/Overlay'
 
-export type PageId = 'status' | 'behavior' | 'providers' | 'prompts' | 'conversations' | 'memories' | 'stickers' | 'blacklist' | 'database' | 'data' | 'logs'
+export type PageId = 'status' | 'behavior' | 'social' | 'providers' | 'prompts' | 'conversations' | 'memories' | 'stickers' | 'blacklist' | 'database' | 'data' | 'logs'
 
 const pages: Record<PageId, { title: string; desc: string }> = {
     status: { title: '对话现场', desc: '查看机器人此刻的参与状态与处理队列' },
     behavior: { title: '行为与上下文', desc: '调整参与方式、消息批次和记忆预算' },
+    social: { title: '社交关系', desc: '管理好感度与熟识度成长、防刷规则与事件审计' },
     providers: { title: '模型', desc: '管理 OpenAI、Anthropic 与 Google 模型配置' },
     prompts: { title: '提示词方案', desc: '定义可复用的人格与表达习惯' },
     conversations: { title: '会话', desc: '管理隔离历史、独立配置与原始消息' },
@@ -47,6 +49,7 @@ export default function App() {
         switch (currentPage) {
             case 'status': return <StatusPage status={status} onRefresh={() => void fetchStatus()} />
             case 'behavior': return <BehaviorPage />
+            case 'social': return <SocialPage />
             case 'providers': return <ProvidersPage />
             case 'prompts': return <PromptsPage />
             case 'conversations': return <ConversationsPage />

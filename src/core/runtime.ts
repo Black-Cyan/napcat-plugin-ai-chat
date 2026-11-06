@@ -10,11 +10,13 @@ import { ContextComposer } from '../services/context/context-composer';
 import { StickerService } from '../services/stickers/sticker-service';
 import { ToolBroker } from '../services/chat/tool-broker';
 import { SpeechService } from '../services/speech/speech-service';
+import { SocialService } from '../services/social/social-service';
 import { ParticipationService } from '../services/chat/participation';
 import { ChatOrchestrator } from '../services/chat/chat-orchestrator';
 import { BatchScheduler } from '../services/chat/batch-scheduler';
 import { AccessControlService } from '../services/security/access-control-service';
 import { OwnerCommandService } from '../services/security/owner-commands';
+import { CommandService } from '../services/command/command-service';
 import { normalizeMessage } from '../napcat/message-segments';
 import type { Conversation, RuntimeStatus } from '../types';
 import { safeDiagnostic } from './diagnostics';
@@ -26,7 +28,9 @@ export class PluginRuntime {
     scheduler: BatchScheduler | null = null;
     accessControl: AccessControlService | null = null;
     stickers: StickerService | null = null;
+    social: SocialService | null = null;
     owners: OwnerCommandService | null = null;
+    commands: CommandService | null = null;
     ready = false;
     initializationError = '';
 
@@ -41,7 +45,8 @@ export class PluginRuntime {
             const tasks = new AITasks(providers);
             const memories = new MemoryService(this.store, tasks);
             const summaries = new SummaryService(this.store, tasks);
-            const context = new ContextComposer(this.store, memories, summaries);
+            this.social = new SocialService(this.store, tasks);
+            const context = new ContextComposer(this.store, memories, summaries, this.social);
             this.stickers = new StickerService(this.store, tasks);
             const speech = new SpeechService(this.store, providers);
             const tools = new ToolBroker(this.store, this.stickers, speech);
@@ -49,10 +54,11 @@ export class PluginRuntime {
             this.accessControl = new AccessControlService(this.store);
             await this.accessControl.init();
             const orchestrator = new ChatOrchestrator(
-                this.store, providers, context, memories, this.stickers, speech, tools, participation, this.accessControl,
+                this.store, providers, context, memories, this.stickers, speech, tools, participation, this.accessControl, undefined, this.social,
             );
             this.scheduler = new BatchScheduler(this.store, orchestrator);
-            this.owners = new OwnerCommandService(this.store, this.accessControl, this.stickers, speech);
+            this.owners = new OwnerCommandService(this.store, this.accessControl, this.stickers, speech, this.social);
+            this.commands = new CommandService(this.store, this.accessControl, this.stickers, speech, this.social);
             this.ready = true;
             this.initializationError = '';
             await this.scheduler.recover();
@@ -65,7 +71,7 @@ export class PluginRuntime {
     }
 
     async onMessage(event: unknown): Promise<void> {
-        if (!this.ready || !this.store || !this.scheduler || !this.accessControl || !this.owners) return;
+        if (!this.ready || !this.store || !this.scheduler || !this.accessControl || !this.commands) return;
         const incoming = normalizeMessage(event);
         if (!incoming || incoming.senderKind === 'self') return;
         const groupId = incoming.type === 'group' ? incoming.targetId : undefined;
@@ -83,10 +89,14 @@ export class PluginRuntime {
         }
 
         let conversation: Conversation | null = null;
-        if (incoming.type === 'private' && pluginState.config.owners.includes(incoming.userId)) {
-            conversation = await this.store.ensureConversation('private', incoming.targetId, incoming.title);
-            if (await this.owners.handle(incoming, conversation)) return;
+        const prefix = pluginState.config.commandPrefix || '#';
+        const hasCommandPrefix = incoming.segments.some((s) => s.type === 'text' && String(s.data.text ?? '').trim().startsWith(prefix));
+
+        if (hasCommandPrefix && this.commands) {
+            conversation = await this.store.ensureConversation(incoming.type, incoming.targetId, incoming.title);
+            if (await this.commands.handle(incoming, conversation)) return;
         }
+
         if (!this.accessControl.isAllowed(incoming.userId, groupId)) return;
         conversation ??= await this.store.ensureConversation(incoming.type, incoming.targetId, incoming.title);
         const appended = await this.store.appendMessage({
@@ -125,7 +135,9 @@ export class PluginRuntime {
         this.store = null;
         this.accessControl = null;
         this.stickers = null;
+        this.social = null;
         this.owners = null;
+        this.commands = null;
         pluginState.cleanup();
     }
 }

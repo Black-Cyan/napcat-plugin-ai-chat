@@ -150,6 +150,17 @@ export interface SessionOverride {
     vision?: boolean;
     stickers?: Partial<StickerConfig>;
     speech?: Partial<SpeechConfig> & { sendVoice?: boolean };
+    social?: Partial<SocialConfig>;
+}
+
+export interface SocialConfig {
+    enabled: boolean;
+    cooldownSeconds: number;
+    maxDailyExp: number;
+    maxDailyAffectionGain: number;
+    maxDailyAffectionLoss: number;
+    enableAiEvaluation: boolean;
+    familiarityThresholds: number[];
 }
 
 export interface TaskProviderConfig {
@@ -158,6 +169,7 @@ export interface TaskProviderConfig {
     vision: string | null;
     tts: string | null;
     speech: string | null;
+    social?: string | null;
 }
 
 export interface SpeechConfig {
@@ -204,6 +216,7 @@ export interface PluginConfig {
     groupDefaults: SessionOverride;
     stickers: StickerConfig;
     speech: SpeechConfig;
+    social: SocialConfig;
     stats: {
         processed: number;
         replies: number;
@@ -285,6 +298,49 @@ export interface UserMemory {
     lastUsedAt: number | null;
     createdAt: number;
     updatedAt: number;
+}
+
+
+export interface UserIdentity {
+    internalId: string;
+    platform: string;
+    externalId: string;
+    createdAt?: number;
+    updatedAt?: number;
+}
+
+export interface UserSocialRelation {
+    botId: string;
+    userId: string;
+    affection: number;
+    familiarityExp: number;
+    familiarityLevel: number;
+    firstInteractedAt: number;
+    lastInteractedAt: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export type SocialEventType =
+    | 'chat_rule'
+    | 'ai_eval'
+    | 'admin_adjust'
+    | 'admin_reset'
+    | 'tool_interaction';
+
+export interface SocialEvent {
+    id: string;
+    botId: string;
+    userId: string;
+    eventType: SocialEventType;
+    affectionDelta: number;
+    affectionAfter: number;
+    expDelta: number;
+    expAfter: number;
+    conversationId?: string | null;
+    messageBatchId?: string | null;
+    reason: string;
+    createdAt: number;
 }
 
 export interface UserProfile {

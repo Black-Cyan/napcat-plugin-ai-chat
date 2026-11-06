@@ -1,9 +1,15 @@
 import { useState } from 'react'
 import { useResource } from '../hooks/useResource'
 import { apiData, postJson } from '../utils/api'
+import { showToast } from '../hooks/useToast'
 import type { BehaviorConfig, ChatMessage, Conversation, PluginConfig, PromptProfile, SpeechConfig, StickerConfig } from '../types'
 import { Notice, Badge, Button, ErrorNotice, Field, Input, Loading, NumberInput, Panel, Select, Toggle } from '../components/ui'
 import { PopoverMenu, SidePanel, useConfirm } from '../components/Overlay'
+
+interface ConversationSummaryData {
+    content: string
+    coveredThroughSeq: number
+}
 
 export default function ConversationsPage() {
     const [search, setSearch] = useState('')
@@ -21,9 +27,25 @@ export default function ConversationsPage() {
     const [stickerOverrides, setStickerOverrides] = useState<Partial<StickerConfig>>({})
     const [speechOverrides, setSpeechOverrides] = useState<Partial<SpeechConfig> & { sendVoice?: boolean }>({})
     const [messages, setMessages] = useState<ChatMessage[] | null>(null)
+    const [summary, setSummary] = useState<ConversationSummaryData | null>(null)
+    const [loadingSummary, setLoadingSummary] = useState(false)
     const [notice, setNotice] = useState('')
+
+    const loadSummary = async (conversationId: string) => {
+        setLoadingSummary(true)
+        try {
+            const res = await apiData<ConversationSummaryData>(`/conversations/${conversationId}/summary`)
+            setSummary(res)
+        } catch {
+            setSummary(null)
+        } finally {
+            setLoadingSummary(false)
+        }
+    }
+
     const choose = (conversation: Conversation) => {
-        setSelected(conversation); setTitle(conversation.title)
+        setSelected(conversation)
+        setTitle(conversation.title)
         setEnabled(conversation.override.enabled ?? true)
         setProviderId(conversation.providerProfileId ?? conversation.override.providerProfileId ?? null)
         setPromptId(conversation.promptProfileId ?? conversation.override.promptProfileId ?? null)
@@ -31,10 +53,42 @@ export default function ConversationsPage() {
         setVision(conversation.override.vision)
         setStickerOverrides(conversation.override.stickers ?? {})
         setSpeechOverrides(conversation.override.speech ?? {})
-        setMessages(null); setNotice('')
+        setMessages(null)
+        setNotice('')
+        void loadSummary(conversation.id)
     }
+
+    const handleResetSummary = async (conv: Conversation) => {
+        if (!await ask({
+            title: `重置会话“${conv.title}”的历史摘要？`,
+            description: '原始聊天记录将完整保留。重置后，旧人设的摘要会被清空，后续对话将基于当前提示词方案重新归纳历史。',
+            confirmLabel: '重置摘要',
+        })) return
+        try {
+            await postJson(`/conversations/${conv.id}/summary/reset`, {})
+            showToast('历史摘要已重置，原始消息已保留', 'success')
+            if (selected?.id === conv.id) {
+                await loadSummary(conv.id)
+            }
+        } catch (reason) {
+            showToast(reason instanceof Error ? reason.message : '重置摘要失败', 'error')
+        }
+    }
+
     const save = async (reset = false) => {
         if (!selected) return
+        const initialPromptId = selected.promptProfileId ?? selected.override.promptProfileId ?? null
+        let shouldResetSummary = false
+        if (!reset && promptId !== initialPromptId && summary?.content) {
+            const confirmReset = await ask({
+                title: '已更换提示词方案',
+                description: '检测到你为该会话更换了提示词方案。是否同时重置旧的人格历史摘要，以便新方案完全生效？\n\n（原始聊天记录不受影响）',
+                confirmLabel: '保存并重置摘要',
+                cancelLabel: '仅保存配置',
+            })
+            shouldResetSummary = confirmReset
+        }
+
         try {
             await postJson(`/conversations/${selected.id}/config`, reset ? {
                 title, enabled: undefined, behavior: {}, vision: undefined, stickers: {}, promptProfileId: null, providerProfileId: null,
@@ -42,19 +96,41 @@ export default function ConversationsPage() {
                 title, enabled, promptProfileId: promptId, providerProfileId: providerId,
                 behavior: behaviorOverrides, vision, stickers: stickerOverrides, speech: speechOverrides,
             })
-            setNotice(reset ? '已恢复继承全局配置' : '会话配置已保存'); await refresh()
-        } catch (reason) { setNotice(reason instanceof Error ? reason.message : '保存失败') }
+            if (shouldResetSummary) {
+                await postJson(`/conversations/${selected.id}/summary/reset`, {})
+                await loadSummary(selected.id)
+                showToast('会话配置已保存，历史摘要已重置', 'success')
+            } else {
+                showToast(reset ? '已恢复继承全局配置' : '会话配置已保存', 'success')
+            }
+            await refresh()
+        } catch (reason) {
+            showToast(reason instanceof Error ? reason.message : '保存失败', 'error')
+        }
     }
+
     const loadMessages = async () => {
         if (!selected) return
-        try { setMessages(await apiData<ChatMessage[]>(`/conversations/${selected.id}/messages`)) }
-        catch (reason) { setNotice(reason instanceof Error ? reason.message : '历史加载失败') }
+        try {
+            setMessages(await apiData<ChatMessage[]>(`/conversations/${selected.id}/messages`))
+        } catch (reason) {
+            showToast(reason instanceof Error ? reason.message : '历史加载失败', 'error')
+        }
     }
+
     const remove = async () => {
         if (!selected || !await ask({ title: `永久删除会话“${selected.title}”？`, description: '将同时删除该会话的原始消息与历史摘要，此操作不可撤销。' })) return
-        try { await postJson(`/conversations/${selected.id}/delete`, {}); setSelected(null); setMessages(null); await refresh() }
-        catch (reason) { setNotice(reason instanceof Error ? reason.message : '删除失败') }
+        try {
+            await postJson(`/conversations/${selected.id}/delete`, {})
+            showToast('会话数据已永久删除', 'success')
+            setSelected(null)
+            setMessages(null)
+            await refresh()
+        } catch (reason) {
+            showToast(reason instanceof Error ? reason.message : '删除失败', 'error')
+        }
     }
+
     return <div className="page-stack">
         <ErrorNotice message={error} /><Notice message={notice} />
         <div>
@@ -67,6 +143,7 @@ export default function ConversationsPage() {
                     <Badge>{conversation.type === 'group' ? '群聊' : '私聊'}</Badge>
                     <PopoverMenu actions={[
                         { label: '配置', onSelect: () => choose(conversation) },
+                        { label: '重置历史摘要', onSelect: () => void handleResetSummary(conversation) },
                         { label: '读取最近 500 条消息', onSelect: () => { choose(conversation); setTimeout(() => void loadMessages(), 0) } },
                         { label: '删除会话数据', danger: true, onSelect: () => { choose(conversation); setTimeout(() => void remove(), 0) } },
                     ]} />
@@ -102,6 +179,23 @@ export default function ConversationsPage() {
                     <Toggle checked={stickerOverrides.autoSend ?? config?.stickers.autoSend ?? true} onChange={(autoSend) => setStickerOverrides({ ...stickerOverrides, autoSend })} label="允许此会话自动发送表情" />
                     <Toggle checked={speechOverrides.transcribe ?? config?.speech.transcribe ?? true} onChange={(transcribe) => setSpeechOverrides({ ...speechOverrides, transcribe })} label="允许此会话转写语音消息" />
                     <Toggle checked={speechOverrides.sendVoice ?? true} onChange={(sendVoice) => setSpeechOverrides({ ...speechOverrides, sendVoice })} label="允许此会话发送语音" />
+                </Panel>
+                <Panel title="历史摘要" description="当对话超出上下文预算时，AI 依据提示词方案自动归纳较早的消息。" actions={
+                    summary?.content ? <Button variant="secondary" onClick={() => void handleResetSummary(selected)}>重置摘要</Button> : null
+                }>
+                    {loadingSummary ? (
+                        <Loading label="读取历史摘要中..." />
+                    ) : summary?.content ? (
+                        <div className="conversation-summary-card">
+                            <div className="conversation-summary-meta">
+                                <span>已归纳至消息 #{summary.coveredThroughSeq}</span>
+                                <span>共 {summary.content.length} 字</span>
+                            </div>
+                            <p className="conversation-summary-text">{summary.content}</p>
+                        </div>
+                    ) : (
+                        <p className="muted text-xs">当前会话暂无历史摘要。当较早历史超出预算时，将自动归纳。</p>
+                    )}
                 </Panel>
                 <Panel title="原始消息" description="默认折叠，仅用于审计。" actions={<Button onClick={() => void loadMessages()}>读取最近 500 条</Button>}>
                     {messages ? (

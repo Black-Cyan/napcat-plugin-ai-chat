@@ -87,7 +87,7 @@ export interface PluginConfig {
     defaultProviderId: string | null
     taskProviders: { summary: string | null; memory: string | null; vision: string | null; tts: string | null; speech: string | null }
     providers: ProviderProfile[]; database: DatabaseConfig; behavior: BehaviorConfig
-    privateDefaults: SessionOverride; groupDefaults: SessionOverride; stickers: StickerConfig; speech: SpeechConfig
+    privateDefaults: SessionOverride; groupDefaults: SessionOverride; stickers: StickerConfig; speech: SpeechConfig; social: SocialConfig
     stats: { processed: number; replies: number; startedAt: number }
 }
 export interface PluginStatus {
@@ -125,4 +125,55 @@ export interface LogEntry {
     message: string
     details?: unknown
 }
+
+export interface SocialConfig {
+    enabled: boolean
+    cooldownSeconds: number
+    maxDailyExp: number
+    maxDailyAffectionGain: number
+    maxDailyAffectionLoss: number
+    enableAiEvaluation: boolean
+    familiarityThresholds: number[]
+}
+
+export interface UserSocialRelation {
+    botId: string
+    userId: string
+    affection: number
+    familiarityExp: number
+    familiarityLevel: number
+    firstInteractedAt: number
+    lastInteractedAt: number
+    createdAt: number
+    updatedAt: number
+    externalId?: string
+    displayName?: string
+}
+
+export interface SocialEvent {
+    id: string
+    botId: string
+    userId: string
+    eventType: string
+    affectionDelta: number
+    affectionAfter: number
+    expDelta: number
+    expAfter: number
+    conversationId?: string | null
+    messageBatchId?: string | null
+    reason: string
+    createdAt: number
+}
+
+export interface SocialOverview {
+    enabled: boolean
+    totalRelations: number
+    averageAffection: number
+    topFamiliarityCount: number
+    todayEventsCount: number
+    recentEvents: SocialEvent[]
+    affectionDistribution: { worship: number; friendly: number; neutral: number; wary: number; hostile: number }
+    levelDistribution: Record<number, number>
+}
+
 export interface ApiResponse<T = unknown> { code: 0 | -1; data?: T; message?: string }

@@ -151,6 +151,8 @@ interface ConfirmOptions {
     title: string
     description?: string
     confirmLabel?: string
+    cancelLabel?: string
+    danger?: boolean
 }
 
 const ConfirmContext = createContext<(options: ConfirmOptions) => Promise<boolean>>(async () => true)
@@ -166,6 +168,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             title={pending.title}
             description={pending.description}
             confirmLabel={pending.confirmLabel}
+            cancelLabel={pending.cancelLabel}
+            danger={pending.danger ?? true}
             onCancel={() => { pending.resolve(false); setPending(null) }}
             onConfirm={() => { pending.resolve(true); setPending(null) }}
         />}

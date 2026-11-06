@@ -9,6 +9,7 @@ import { textMessage } from '../providers/types';
 import type { DatabaseConfig, ProviderProfile } from '../types';
 import { normalizeSubjectId } from '../types';
 import { getFriendList, getGroupList } from '../napcat/actions';
+import { getMidnight } from './social/social-service';
 import { discoverGoogleModels } from '../providers/google/models';
 import { safeDiagnostic } from '../core/diagnostics';
 import { sessionOverrideSchema } from '../config';
@@ -119,6 +120,19 @@ export function registerApiRoutes(ctx: NapCatPluginContext): void {
             promptProfileId: body.promptProfileId,
             providerProfileId: body.providerProfileId,
         });
+        return { ok: true };
+    }));
+    router.get('/conversations/:id/summary', handler(async (req) => {
+        const id = idSchema.parse(param(req, 'id'));
+        const conversation = await requireStore().getConversation(id);
+        if (!conversation) throw new Error('会话不存在');
+        return requireStore().getSummary(id);
+    }));
+    router.post('/conversations/:id/summary/reset', handler(async (req) => {
+        const id = idSchema.parse(param(req, 'id'));
+        const conversation = await requireStore().getConversation(id);
+        if (!conversation) throw new Error('会话不存在');
+        await requireStore().resetSummary(id);
         return { ok: true };
     }));
     router.post('/conversations/:id/delete', handler(async (req) => {
@@ -236,6 +250,101 @@ export function registerApiRoutes(ctx: NapCatPluginContext): void {
             getFriendList(ctx, refresh).catch(() => []),
         ]);
         return { groups, friends };
+    }));
+
+    // ==================== 社交关系系统 API ====================
+
+    router.get('/social/overview', handler(async () => {
+        const botId = pluginState.selfId || 'default-bot';
+        const totalRelations = await requireStore().countSocialRelations(botId);
+        const all = await requireStore().listSocialRelations(botId, '', 10000, 0);
+        let sumAffection = 0;
+        let topFamiliarityCount = 0;
+        const affectionDistribution = { worship: 0, friendly: 0, neutral: 0, wary: 0, hostile: 0 };
+        const levelDistribution: Record<number, number> = {};
+        for (let l = 1; l <= 10; l++) levelDistribution[l] = 0;
+
+        for (const r of all) {
+            sumAffection += r.affection;
+            if (r.familiarityLevel >= 5) topFamiliarityCount++;
+            levelDistribution[r.familiarityLevel] = (levelDistribution[r.familiarityLevel] || 0) + 1;
+            if (r.affection >= 80) affectionDistribution.worship++;
+            else if (r.affection >= 20) affectionDistribution.friendly++;
+            else if (r.affection >= -19) affectionDistribution.neutral++;
+            else if (r.affection >= -59) affectionDistribution.wary++;
+            else affectionDistribution.hostile++;
+        }
+
+        const avgAffection = all.length ? Math.round(sumAffection / all.length) : 0;
+        const midnight = getMidnight(pluginState.config.timezone);
+        const events = await requireStore().listSocialEvents(botId, undefined, 500);
+        const todayCount = events.filter((e) => e.createdAt >= midnight).length;
+
+        return {
+            enabled: Boolean(pluginState.config.social?.enabled),
+            totalRelations,
+            averageAffection: avgAffection,
+            topFamiliarityCount,
+            todayEventsCount: todayCount,
+            recentEvents: events.slice(0, 10),
+            affectionDistribution,
+            levelDistribution,
+        };
+    }));
+
+    router.get('/social/relations', handler(async (req) => {
+        const botId = pluginState.selfId || 'default-bot';
+        const search = query(req, 'search');
+        const limit = Number(query(req, 'limit')) || 50;
+        const offset = Number(query(req, 'offset')) || 0;
+        return requireStore().listSocialRelations(botId, search, limit, offset);
+    }));
+
+    router.get('/social/relations/:userId', handler(async (req) => {
+        const botId = pluginState.selfId || 'default-bot';
+        const userId = idSchema.parse(param(req, 'userId'));
+        const relation = await requireStore().getSocialRelation(botId, userId);
+        const identity = await requireStore().getIdentityByInternalId(userId);
+        const events = await requireStore().listSocialEvents(botId, userId, 20);
+        const profiles = identity ? await requireStore().getProfiles([identity.externalId]) : [];
+        return {
+            relation,
+            identity,
+            profile: profiles[0] || null,
+            events,
+        };
+    }));
+
+    router.post('/social/relations/:userId/adjust', handler(async (req) => {
+        const botId = pluginState.selfId || 'default-bot';
+        const userId = idSchema.parse(param(req, 'userId'));
+        const body = z.object({
+            affectionDelta: z.number().int().optional(),
+            expDelta: z.number().int().optional(),
+            reason: z.string().min(1).max(200),
+        }).parse(req.body);
+        return requireStore().applySocialEvent({
+            botId,
+            userId,
+            eventType: 'admin_adjust',
+            affectionDelta: body.affectionDelta,
+            expDelta: body.expDelta,
+            reason: body.reason,
+            thresholds: pluginState.config.social.familiarityThresholds,
+        });
+    }));
+
+    router.post('/social/relations/:userId/reset', handler(async (req) => {
+        const botId = pluginState.selfId || 'default-bot';
+        const userId = idSchema.parse(param(req, 'userId'));
+        return requireStore().resetSocialRelation(botId, userId, 'WebUI所有者重置');
+    }));
+
+    router.get('/social/events', handler(async (req) => {
+        const botId = pluginState.selfId || 'default-bot';
+        const userId = query(req, 'userId') || undefined;
+        const limit = Number(query(req, 'limit')) || 50;
+        return requireStore().listSocialEvents(botId, userId, limit);
     }));
 
     router.get('/stickers', handler(async (req) => requireStore().listStickers(query(req, 'search'))));

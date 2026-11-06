@@ -9,6 +9,7 @@ import { ContextComposer } from '../context/context-composer';
 import { MemoryService } from '../memory/memory-service';
 import { StickerService } from '../stickers/sticker-service';
 import { SpeechService } from '../speech/speech-service';
+import type { SocialService } from '../social/social-service';
 import { conversationEnabled, effectiveBehavior, effectiveProviderId, effectiveVision } from './config';
 import { ParticipantAliases } from './participants';
 import { ParticipationService } from './participation';
@@ -33,6 +34,7 @@ export class ChatOrchestrator {
         private readonly participation: ParticipationService,
         private readonly accessControl?: AccessControlService,
         private readonly responseGuard: ResponseGuard = new ResponseGuard(),
+        private readonly social?: SocialService,
     ) {}
 
     private isAllowed(conversation: Conversation): boolean {
@@ -189,6 +191,7 @@ export class ChatOrchestrator {
             const results = await Promise.allSettled([
                 this.memories.updateFromBatch(conversation, messages, aliases),
                 this.stickers.processBatch(conversation, messages),
+                this.social ? this.social.processBatch(conversation, messages, aliases) : Promise.resolve(),
             ]);
             for (const result of results) {
                 if (result.status === 'rejected') {

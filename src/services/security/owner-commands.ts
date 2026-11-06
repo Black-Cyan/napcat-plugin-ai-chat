@@ -9,6 +9,7 @@ import { getMessage, sendMessage } from '../../napcat/actions';
 import { AccessControlService } from './access-control-service';
 import { StickerService } from '../stickers/sticker-service';
 import { SpeechService } from '../speech/speech-service';
+import type { SocialService } from '../social/social-service';
 
 interface PendingDeletion {
     token: string;
@@ -25,6 +26,7 @@ export class OwnerCommandService {
         private readonly accessControl: AccessControlService,
         private readonly stickers: StickerService,
         private readonly speech?: SpeechService,
+        private readonly social?: SocialService,
     ) {}
 
     async handle(incoming: NormalizedIncoming, conversation: Conversation): Promise<boolean> {
@@ -55,6 +57,7 @@ export class OwnerCommandService {
             '#确认 <令牌>',
             '回复表情后发送 #收藏表情',
             '#语音 <文本>（使用 TTS 模型发送语音）',
+            '#重置摘要 [群号|QQ]（清空历史摘要，保留原始消息）',
             '#启用 / #停用',
         ].join('\n');
 
@@ -64,6 +67,19 @@ export class OwnerCommandService {
             if (!this.speech) return '语音功能未就绪';
             const result = await this.speech.sendVoice(conversation, content);
             return result.fallback ? '语音发送失败，已改为文字发送' : '语音已发送';
+        }
+
+        if (command === '重置摘要') {
+            const rawTarget = args[0]?.trim();
+            if (rawTarget) {
+                const normId = normalizeSubjectId(rawTarget);
+                const targetConv = await this.store.findConversationByTargetId(normId);
+                if (!targetConv) throw new Error(`未找到目标 ${rawTarget} 的会话数据`);
+                await this.store.resetSummary(targetConv.id);
+                return `已重置会话“${targetConv.title}”的历史摘要，原始消息已保留`;
+            }
+            await this.store.resetSummary(conversation.id);
+            return '已重置当前会话的历史摘要，原始消息已保留';
         }
 
         if (command === '启用' || command === '停用') {

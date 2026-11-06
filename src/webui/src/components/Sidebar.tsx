@@ -2,6 +2,7 @@ import type { PageId } from '../App'
 import {
     IconActivity,
     IconBrain,
+    IconHeart,
     IconDashboard,
     IconDatabase,
     IconDownload,
@@ -23,6 +24,7 @@ const groups: Array<{ label: string; items: Array<{ id: PageId; label: string; i
     { label: '智能', items: [
         { id: 'behavior', label: '行为与上下文', icon: <IconSettings size={17} /> },
         { id: 'providers', label: '模型配置', icon: <IconPlugin size={17} /> },
+        { id: 'social', label: '社交关系', icon: <IconHeart size={17} /> },
         { id: 'prompts', label: '提示词方案', icon: <IconBrain size={17} /> },
     ] },
     { label: '系统', items: [

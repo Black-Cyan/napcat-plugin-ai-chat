@@ -38,6 +38,17 @@ const providerSchema = z.object({
     sttModel: z.string().max(64).optional(),
 });
 
+
+export const socialConfigSchema = z.object({
+    enabled: z.boolean(),
+    cooldownSeconds: z.number().int().min(0).max(86400),
+    maxDailyExp: z.number().int().min(0).max(1000),
+    maxDailyAffectionGain: z.number().int().min(0).max(100),
+    maxDailyAffectionLoss: z.number().int().min(0).max(100),
+    enableAiEvaluation: z.boolean(),
+    familiarityThresholds: z.array(z.number().int().min(1)).min(1).max(10),
+});
+
 export const sessionOverrideSchema = z.object({
     enabled: z.boolean().optional(),
     promptProfileId: z.string().nullable().optional(),
@@ -52,6 +63,7 @@ export const sessionOverrideSchema = z.object({
         cacheLimitMb: z.number().int().min(1),
         rejectionCooldownDays: z.number().min(0).max(365),
     }).partial().optional(),
+    social: socialConfigSchema.partial().optional(),
     speech: z.object({
         transcribe: z.boolean(),
         maxTtsTextLength: z.number().int().min(1).max(5000),
@@ -88,6 +100,7 @@ export const pluginConfigSchema = z.object({
     behavior: behaviorSchema,
     privateDefaults: sessionOverrideSchema,
     groupDefaults: sessionOverrideSchema,
+    social: socialConfigSchema,
     stickers: z.object({
         enabled: z.boolean(),
         autoCollect: z.boolean(),
@@ -153,6 +166,15 @@ export function createDefaultConfig(): PluginConfig {
             maxImageBytes: 10 * 1024 * 1024,
             cacheLimitMb: 512,
             rejectionCooldownDays: 7,
+        },
+        social: {
+            enabled: false,
+            cooldownSeconds: 30,
+            maxDailyExp: 20,
+            maxDailyAffectionGain: 5,
+            maxDailyAffectionLoss: 10,
+            enableAiEvaluation: false,
+            familiarityThresholds: [50, 120, 220, 350, 520, 740, 1020, 1380, 1850],
         },
         speech: {
             transcribe: true,
