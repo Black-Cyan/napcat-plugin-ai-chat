@@ -2714,51 +2714,100 @@ body::before {
     font-family: var(--font-mono);
 }
 
-.distribution-bars {
+/* ============ 柱状图 (Bar Chart) ============ */
+.bar-chart-container {
+    position: relative;
+    padding-top: 32px;
+    padding-bottom: 4px;
+}
+
+.bar-chart-columns {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.dist-bar-row {
-    display: grid;
-    grid-template-columns: 130px minmax(0, 1fr) 90px;
-    align-items: center;
-    gap: 10px;
-}
-
-.dist-bar-track {
-    height: 8px;
-    border-radius: 9999px;
-    background: var(--surface-subtle);
-    overflow: hidden;
-}
-
-.dist-bar-fill {
-    height: 100%;
-    border-radius: 9999px;
-    transition: width 0.3s ease;
-}
-
-.dist-bar-good { background: var(--success); }
-.dist-bar-neutral { background: var(--muted); }
-.dist-bar-warn { background: var(--warning); }
-.dist-bar-danger { background: var(--danger); }
-
-.level-capsules-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    align-items: flex-end;
     gap: 8px;
+    height: 140px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-subtle);
 }
 
-.level-capsule-item {
+.bar-chart-col {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    cursor: pointer;
+}
+
+.bar-chart-track {
+    position: relative;
+    width: 100%;
+    max-width: 44px;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: var(--surface-subtle);
+    border-radius: 6px 6px 2px 2px;
+}
+
+.bar-chart-fill {
+    width: 100%;
+    border-radius: 6px 6px 2px 2px;
+    transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), filter 0.15s ease;
+}
+
+.bar-chart-col:hover .bar-chart-fill {
+    filter: brightness(1.22);
+}
+
+.bar-chart-label {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    white-space: nowrap;
+    transition: color 0.15s ease, font-weight 0.15s ease;
+}
+
+.bar-chart-col:hover .bar-chart-label {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.bar-chart-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 25;
+    pointer-events: none;
+    white-space: nowrap;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: var(--glass-raised);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.45);
+    font-size: 11px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 8px 10px;
-    background: var(--surface-subtle);
-    border: 1px solid var(--line-subtle);
-    border-radius: 12px;
+    gap: 2px;
+    animation: float-in 0.15s ease;
+}
+
+.bar-chart-tooltip-title {
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.bar-chart-tooltip-value {
+    color: var(--ink);
+    font-weight: 700;
+    font-family: var(--font-mono);
 }
 
 .thresholds-table {
